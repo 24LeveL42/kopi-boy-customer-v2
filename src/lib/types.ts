@@ -10,7 +10,7 @@
 
 export type MerchantCategory = "home-cook" | "hawker" | "bulk-orders" | "bakery" | "drinks";
 
-export type CuisineType = "chinese" | "muslim" | "indian" | "western";
+export type CuisineType = "chinese" | "halal" | "indian" | "western";
 
 export interface CuisineDef {
   id: CuisineType | "all";

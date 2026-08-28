@@ -21,7 +21,7 @@ export const CATEGORIES: CategoryDef[] = [
 export const CUISINES: CuisineDef[] = [
   { id: "all", label: "All Cuisines" },
   { id: "chinese", label: "Chinese" },
-  { id: "muslim", label: "Muslim" },
+  { id: "halal", label: "Halal" },
   { id: "indian", label: "Indian" },
   { id: "western", label: "Western" },
 ];
@@ -82,7 +82,7 @@ export const MERCHANTS: Merchant[] = [
     priceFrom: 5,
     heroImage: "https://picsum.photos/seed/kaknur-nasilemak/640/480",
     avatarImage: "https://picsum.photos/seed/kaknur-nasilemak-avatar/100/100",
-    cuisineType: "muslim",
+    cuisineType: "halal",
     menuHighlights: [
       { name: "Nasi Lemak Ayam Goreng", price: 6.5 },
       { name: "Nasi Lemak Rendang", price: 7.5 },
@@ -183,7 +183,7 @@ export const MERCHANTS: Merchant[] = [
     priceFrom: 6,
     heroImage: "https://picsum.photos/seed/yishun-briyani/640/480",
     avatarImage: "https://picsum.photos/seed/yishun-briyani-avatar/100/100",
-    cuisineType: "muslim",
+    cuisineType: "halal",
     menuHighlights: [
       { name: "Mutton Briyani", price: 9.5 },
       { name: "Chicken Briyani", price: 6.5 },
@@ -243,7 +243,7 @@ export const MERCHANTS: Merchant[] = [
     priceFrom: 1.8,
     heroImage: "https://picsum.photos/seed/geylang-tehtarik/640/480",
     avatarImage: "https://picsum.photos/seed/geylang-tehtarik-avatar/100/100",
-    cuisineType: "muslim",
+    cuisineType: "halal",
     menuHighlights: [
       { name: "Teh Tarik", price: 1.8 },
       { name: "Calamansi Bandung", price: 2.2 },

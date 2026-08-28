@@ -42,7 +42,7 @@ const merchants: Merchant[] = [
     name: "Kak Nur's Nasi Lemak",
     category: "home-cook",
     cuisine: "Malay, home-cooked",
-    cuisineType: "muslim",
+    cuisineType: "halal",
     neighbourhood: "Bedok",
     blurb: "",
     rating: 4.8,
@@ -94,7 +94,7 @@ describe("filterMerchants", () => {
   });
 
   it("filters by cuisine type", () => {
-    const result = filterMerchants(merchants, "", "all", "muslim");
+    const result = filterMerchants(merchants, "", "all", "halal");
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe("3");
   });
@@ -110,7 +110,7 @@ describe("filterMerchants", () => {
   });
 
   it("combines query and cuisine filters", () => {
-    const result = filterMerchants(merchants, "nasi", "all", "muslim");
+    const result = filterMerchants(merchants, "nasi", "all", "halal");
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe("3");
   });
