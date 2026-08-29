@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 const ITEMS = [
-  { id: "home", label: "Home", icon: HomeIcon },
-  { id: "explore", label: "Explore", icon: ExploreIcon },
-  { id: "orders", label: "Orders", icon: OrdersIcon },
-  { id: "favourites", label: "Favourites", icon: HeartIcon },
-  { id: "profile", label: "Profile", icon: ProfileIcon },
+  { id: "home", label: "Home", icon: HomeIcon, href: "/" },
+  { id: "explore", label: "Explore", icon: ExploreIcon, href: "/" },
+  { id: "orders", label: "Orders", icon: OrdersIcon, href: "/" },
+  { id: "favourites", label: "Favourites", icon: HeartIcon, href: "/" },
+  { id: "profile", label: "Profile", icon: ProfileIcon, href: "/account" },
 ] as const;
 
 export function BottomNav() {
@@ -22,8 +23,9 @@ export function BottomNav() {
         const isActive = item.id === active;
         const Icon = item.icon;
         return (
-          <button
+          <Link
             key={item.id}
+            href={item.href}
             onClick={() => setActive(item.id)}
             className="flex flex-1 flex-col items-center gap-1 py-1.5"
             aria-current={isActive ? "page" : undefined}
@@ -34,7 +36,7 @@ export function BottomNav() {
             )}
             <Icon />
             <span className="text-[11px] font-medium">{item.label}</span>
-          </button>
+          </Link>
         );
       })}
     </nav>
