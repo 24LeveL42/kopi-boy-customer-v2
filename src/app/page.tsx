@@ -1,14 +1,14 @@
 import { Marketplace } from "@/components/Marketplace";
-import { MERCHANTS } from "@/lib/demo-data";
+import { getLiveMerchants } from "@/lib/kitchens";
 
 /**
- * Customer marketplace home — Feature #001.
+ * Customer marketplace home — Feature #003.
  *
- * Demo data only (see /src/lib/demo-data.ts). Once Feature #003
- * (merchant onboarding) and a real database exist, replace the direct
- * import below with a server-side data fetch and keep <Marketplace>
- * (the client component) unchanged — it only needs a Merchant[].
+ * Reads real live kitchens from Supabase (see src/lib/kitchens.ts). Demo
+ * data (src/lib/demo-data.ts) is no longer used here — it's kept only for
+ * the filter-merchants test fixtures.
  */
-export default function Home() {
-  return <Marketplace merchants={MERCHANTS} />;
+export default async function Home() {
+  const merchants = await getLiveMerchants();
+  return <Marketplace merchants={merchants} />;
 }
