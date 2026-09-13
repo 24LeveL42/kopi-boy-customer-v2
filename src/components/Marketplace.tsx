@@ -73,10 +73,7 @@ export function Marketplace({ merchants }: { merchants: Merchant[] }) {
         )}
       </main>
 
-      {/* Real cart/ordering isn't built yet (Feature #005/#006) — CartButton
-          returns null at count 0, so it stays hidden rather than showing a
-          fake number. */}
-      <CartButton count={0} />
+      <CartButton />
       <BottomNav />
     </div>
   );

@@ -1,8 +1,16 @@
-export function CartButton({ count = 0 }: { count?: number }) {
-  if (count <= 0) return null;
+"use client";
+
+import Link from "next/link";
+import { useCart } from "@/lib/cart-context";
+
+export function CartButton() {
+  const { itemCount } = useCart();
+  if (itemCount <= 0) return null;
+
   return (
-    <button
-      aria-label={`Cart, ${count} items`}
+    <Link
+      href="/cart"
+      aria-label={`Cart, ${itemCount} items`}
       className="fixed bottom-24 right-4 z-20 flex h-14 w-14 items-center justify-center rounded-full shadow-xl sm:right-8"
       style={{ background: "linear-gradient(135deg, var(--kb-purple) 0%, var(--kb-purple-deep) 100%)" }}
     >
@@ -15,8 +23,8 @@ export function CartButton({ count = 0 }: { count?: number }) {
         className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-bold text-white"
         style={{ background: "var(--kb-danger)" }}
       >
-        {count}
+        {itemCount}
       </span>
-    </button>
+    </Link>
   );
 }

@@ -20,25 +20,30 @@ npm test         # vitest, single run
 npm run lint
 ```
 
-## Current status: Feature #003 (partial) — Auth done, live marketplace reads real kitchens
+## Current status: Feature #005 — Cart + order creation
 
 Done:
 - Project foundation (Next.js, TypeScript, Tailwind, ESLint)
 - Global design system (`src/app/globals.css` — brand tokens, no hard-coded
   hex outside that file)
 - Responsive customer marketplace (`/`) — search, category filter, merchant
-  grid, "Popular Near You" — **now reads real live kitchens from Supabase**
-  via `src/lib/kitchens.ts`, not demo data (see `docs/feature-003.md`)
-- Merchant profile route (`/merchant/[id]`) — reads the real `kitchens` row;
-  full menu/cart/PayNow UI is still a later feature
+  grid, "Popular Near You" — reads real live kitchens from Supabase via
+  `src/lib/kitchens.ts`, not demo data (see `docs/feature-003.md`)
+- Merchant profile route (`/merchant/[id]`) — reads the real `kitchens` row
+  and now renders its menu with Add-to-cart controls (see `docs/feature-005.md`)
+- Cart (`/cart`) — client-side, single-kitchen, `localStorage`-backed — and
+  checkout, which creates a real `orders` row (`status = 'placed'`) plus its
+  `order_items`, then lands on an order confirmation screen (`/orders/[id]`)
 - Auth: phone OTP (Vonage) + Google Sign-In, `/login`, `/account`
 - Testing — Vitest + Testing Library, 11 passing tests on the search/filter
   logic (fixtures only, not tied to demo-data.ts)
 
 Not done yet (by design — see build sequence):
-- Cart/checkout, PayNow flow, delivery, ratings, complaints, admin —
-  Features #005-#011. `rating`/`distanceKm`/`etaMinutes` on real merchants
+- PayNow, cook accept/reject, delivery, ratings, complaints, admin —
+  Features #006-#011. `rating`/`distanceKm`/`etaMinutes` on real merchants
   are fixed placeholders until #007 (delivery fee) and #009 (ratings) exist.
+- Order history for the customer — only the single post-checkout
+  confirmation screen exists; the `BottomNav` "Orders" tab is still disabled.
 
 ## Build sequence
 

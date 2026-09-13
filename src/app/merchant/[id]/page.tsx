@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { CartButton } from "@/components/CartButton";
+import { MenuItemRow } from "@/components/MenuItemRow";
 
 /**
- * Merchant profile route — routing scaffold, updated for Feature #003 to
- * read the real `kitchens` row instead of demo data. Full profile UI
- * (menu grid, cart, PayNow flow) is still Feature #004+.
+ * Merchant profile route — updated for Feature #005 to render the real menu
+ * (Feature #004 was never built as its own pass; a menu grid was added here
+ * directly since #005 needs one to add items from). PayNow/checkout status
+ * beyond "placed" is still Feature #006.
  */
 export default async function MerchantPage({
   params,
@@ -23,6 +26,12 @@ export default async function MerchantPage({
     .maybeSingle();
 
   if (!kitchen) notFound();
+
+  const { data: menuItems } = await supabase
+    .from("menu_items")
+    .select("id, name, price")
+    .eq("kitchen_id", id)
+    .order("created_at", { ascending: true });
 
   const CUISINE_LABEL: Record<string, string> = {
     chinese: "Chinese",
@@ -42,14 +51,22 @@ export default async function MerchantPage({
           {CUISINE_LABEL[kitchen.cuisine_type] ?? kitchen.cuisine_type} &middot; {kitchen.neighbourhood}
         </p>
         {kitchen.description && <p className="mt-4">{kitchen.description}</p>}
-        <div
-          className="mt-6 rounded-xl border border-dashed p-4 text-sm"
-          style={{ borderColor: "var(--kb-navy-line)", color: "var(--kb-on-navy-soft)" }}
-        >
-          Full menu, cart, and PayNow checkout land in Feature #004–#006. This
-          route exists now so navigation and IDs are stable.
+
+        <h2 className="mt-6 font-display text-lg font-semibold">Menu</h2>
+        <div className="mt-3 space-y-2">
+          {menuItems && menuItems.length > 0 ? (
+            menuItems.map((item) => (
+              <MenuItemRow key={item.id} kitchenId={kitchen.id} kitchenName={kitchen.business_name} item={item} />
+            ))
+          ) : (
+            <p className="text-sm" style={{ color: "var(--kb-on-navy-soft)" }}>
+              This kitchen hasn&apos;t added any menu items yet.
+            </p>
+          )}
         </div>
       </div>
+
+      <CartButton />
     </div>
   );
 }
