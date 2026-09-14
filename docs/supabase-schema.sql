@@ -29,6 +29,29 @@ create table if not exists public.profiles (
 
 alter table public.profiles enable row level security;
 
+-- ----------------------------------------------------------------------------
+-- 1a. ROLE-CHECK HELPER (avoids RLS self-recursion)
+-- A policy on public.profiles must never check the caller's role with a
+-- plain `exists (select 1 from public.profiles ...)` subquery — Postgres has
+-- to evaluate profiles' own policies to run that subquery, which includes
+-- this same check, forever: "infinite recursion detected in policy for
+-- relation 'profiles'". Every table's admin/role-gated policies below call
+-- this function instead. SECURITY DEFINER makes it run as its owner (the
+-- table owner), which bypasses RLS on profiles entirely, so the lookup never
+-- re-triggers the policy that's calling it.
+-- ----------------------------------------------------------------------------
+create or replace function public.has_role(target_role text)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles where id = auth.uid() and role = target_role
+  );
+$$;
+
 drop policy if exists "Users can read their own profile" on public.profiles;
 create policy "Users can read their own profile"
   on public.profiles for select
@@ -45,12 +68,12 @@ create policy "Users can update their own profile"
 drop policy if exists "Admins can read every profile" on public.profiles;
 create policy "Admins can read every profile"
   on public.profiles for select
-  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'));
+  using (public.has_role('admin'));
 
 drop policy if exists "Admins can update every profile" on public.profiles;
 create policy "Admins can update every profile"
   on public.profiles for update
-  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'));
+  using (public.has_role('admin'));
 
 -- ----------------------------------------------------------------------------
 -- 2. COOK APPLICATIONS
@@ -85,12 +108,12 @@ create policy "Applicants can submit a cook application"
 drop policy if exists "Admins can read every cook application" on public.cook_applications;
 create policy "Admins can read every cook application"
   on public.cook_applications for select
-  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'));
+  using (public.has_role('admin'));
 
 drop policy if exists "Admins can update every cook application" on public.cook_applications;
 create policy "Admins can update every cook application"
   on public.cook_applications for update
-  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'));
+  using (public.has_role('admin'));
 
 -- ----------------------------------------------------------------------------
 -- 3. RIDER APPLICATIONS
@@ -123,12 +146,12 @@ create policy "Applicants can submit a rider application"
 drop policy if exists "Admins can read every rider application" on public.rider_applications;
 create policy "Admins can read every rider application"
   on public.rider_applications for select
-  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'));
+  using (public.has_role('admin'));
 
 drop policy if exists "Admins can update every rider application" on public.rider_applications;
 create policy "Admins can update every rider application"
   on public.rider_applications for update
-  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'));
+  using (public.has_role('admin'));
 
 -- ----------------------------------------------------------------------------
 -- 4. AUTO-CREATE A PROFILE ROW ON SIGNUP
@@ -213,7 +236,7 @@ create policy "Cooks can read their own kitchen"
 drop policy if exists "Cooks can insert their own kitchen" on public.kitchens;
 create policy "Cooks can insert their own kitchen"
   on public.kitchens for insert
-  with check (auth.uid() = id and exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'cook'));
+  with check (auth.uid() = id and public.has_role('cook'));
 
 drop policy if exists "Cooks can update their own kitchen" on public.kitchens;
 create policy "Cooks can update their own kitchen"
@@ -228,7 +251,7 @@ create policy "Anyone can read live kitchens"
 drop policy if exists "Admins can read every kitchen" on public.kitchens;
 create policy "Admins can read every kitchen"
   on public.kitchens for select
-  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'));
+  using (public.has_role('admin'));
 
 -- ----------------------------------------------------------------------------
 -- 7. MENU ITEMS
@@ -324,12 +347,12 @@ create policy "Applicants can submit a picker application"
 drop policy if exists "Admins can read every picker application" on public.picker_applications;
 create policy "Admins can read every picker application"
   on public.picker_applications for select
-  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'));
+  using (public.has_role('admin'));
 
 drop policy if exists "Admins can update every picker application" on public.picker_applications;
 create policy "Admins can update every picker application"
   on public.picker_applications for update
-  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'));
+  using (public.has_role('admin'));
 
 -- ----------------------------------------------------------------------------
 -- 11. PICKUP REQUESTS
@@ -380,7 +403,7 @@ create policy "Pickers can read open pickup requests"
   on public.pickup_requests for select
   using (
     status = 'open'
-    and exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'picker')
+    and public.has_role('picker')
   );
 
 drop policy if exists "Pickers can read their assigned pickup requests" on public.pickup_requests;
@@ -393,7 +416,7 @@ create policy "Pickers can accept an open pickup request"
   on public.pickup_requests for update
   using (
     status = 'open'
-    and exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'picker')
+    and public.has_role('picker')
   )
   with check (picker_id = auth.uid() and status = 'accepted');
 
@@ -406,12 +429,12 @@ create policy "Pickers can complete their assigned pickup request"
 drop policy if exists "Admins can read every pickup request" on public.pickup_requests;
 create policy "Admins can read every pickup request"
   on public.pickup_requests for select
-  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'));
+  using (public.has_role('admin'));
 
 drop policy if exists "Admins can update every pickup request" on public.pickup_requests;
 create policy "Admins can update every pickup request"
   on public.pickup_requests for update
-  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'));
+  using (public.has_role('admin'));
 
 
 -- ============================================================================
@@ -477,7 +500,7 @@ create policy "Cooks can update orders placed at their kitchen"
 drop policy if exists "Admins can read every order" on public.orders;
 create policy "Admins can read every order"
   on public.orders for select
-  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'));
+  using (public.has_role('admin'));
 
 -- ----------------------------------------------------------------------------
 -- 13. ORDER ITEMS
@@ -523,7 +546,7 @@ create policy "Cooks can read items on orders placed at their kitchen"
 drop policy if exists "Admins can read every order item" on public.order_items;
 create policy "Admins can read every order item"
   on public.order_items for select
-  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'));
+  using (public.has_role('admin'));
 
 
 -- ============================================================================
