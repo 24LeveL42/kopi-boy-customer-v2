@@ -46,15 +46,16 @@ const CATEGORY_FALLBACK_IMAGE: Record<Merchant["category"], string> = {
 export async function getLiveMerchants(): Promise<Merchant[]> {
   const supabase = await createClient();
 
-  const { data: kitchens } = await supabase
+  const { data: kitchens, error: kitchensError } = await supabase
     .from("kitchens")
     .select("*")
     .eq("is_live", true)
     .returns<KitchenRow[]>();
 
+  if (kitchensError) throw new Error(`Failed to load kitchens: ${kitchensError.message}`);
   if (!kitchens || kitchens.length === 0) return [];
 
-  const { data: items } = await supabase
+  const { data: items, error: itemsError } = await supabase
     .from("menu_items")
     .select("*")
     .in(
@@ -63,6 +64,8 @@ export async function getLiveMerchants(): Promise<Merchant[]> {
     )
     .order("created_at", { ascending: true })
     .returns<MenuItemRow[]>();
+
+  if (itemsError) throw new Error(`Failed to load menu items: ${itemsError.message}`);
 
   return kitchens.map((k) => {
     const kitchenItems = (items ?? []).filter((i) => i.kitchen_id === k.id);

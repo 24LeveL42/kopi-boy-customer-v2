@@ -579,3 +579,32 @@ set paynow_uen = (
   limit 1
 )
 where k.paynow_uen is null;
+
+
+-- ============================================================================
+-- KOPI BOY 2.0 — Table Grants
+-- RLS policies only apply once the calling Postgres role already has the
+-- underlying table privilege — GRANT is checked before RLS is ever
+-- evaluated, so a role with no GRANT gets "permission denied for table X"
+-- no matter how permissive its policies are. New Supabase projects normally
+-- get default grants for anon/authenticated automatically; this section
+-- exists to restore them if a project (or a table created outside the
+-- dashboard) is missing them. Re-running GRANT is always safe/idempotent.
+-- ============================================================================
+grant usage on schema public to anon, authenticated;
+
+-- Marketplace browsing works logged-out — RLS still restricts these to
+-- is_live = true rows (kitchens) / rows belonging to a live kitchen (menu_items).
+grant select on public.kitchens, public.menu_items to anon;
+
+-- Everything else requires a signed-in user; RLS still restricts each row to
+-- what that specific user (or an admin) is allowed to see or change.
+grant select, update on public.profiles to authenticated;
+grant select, insert, update on public.cook_applications to authenticated;
+grant select, insert, update on public.rider_applications to authenticated;
+grant select, insert, update on public.picker_applications to authenticated;
+grant select, insert, update on public.pickup_requests to authenticated;
+grant select, insert, update on public.orders to authenticated;
+grant select, insert on public.order_items to authenticated;
+grant select, insert, update, delete on public.kitchens to authenticated;
+grant select, insert, update, delete on public.menu_items to authenticated;
