@@ -64,7 +64,8 @@ export function MenuItemRow({
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{item.name}</p>
             <p className="text-sm" style={{ color: "var(--kb-ink-soft)" }}>
-              ${item.price.toFixed(2)}
+              ${(item.price * Math.max(quantity, 1)).toFixed(2)}
+              {quantity > 1 && <span className="text-xs"> (${item.price.toFixed(2)} each)</span>}
             </p>
           </div>
         </button>
@@ -112,7 +113,8 @@ export function MenuItemRow({
                 </button>
               </div>
               <p className="mt-1 text-base font-semibold" style={{ color: "var(--kb-ink-soft)" }}>
-                ${item.price.toFixed(2)}
+                ${(item.price * Math.max(quantity, 1)).toFixed(2)}
+                {quantity > 1 && <span className="text-sm font-normal"> (${item.price.toFixed(2)} each)</span>}
               </p>
 
               <div className="mt-5 flex justify-end">{quantityControl}</div>
