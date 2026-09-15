@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCart } from "@/lib/cart-context";
 
 export function MenuItemRow({
@@ -9,18 +10,25 @@ export function MenuItemRow({
 }: {
   kitchenId: string;
   kitchenName: string;
-  item: { id: string; name: string; price: number };
+  item: { id: string; name: string; price: number; photo_url: string | null };
 }) {
   const { cart, addItem, setQuantity } = useCart();
   const quantity = cart?.kitchenId === kitchenId ? cart.items.find((i) => i.menuItemId === item.id)?.quantity ?? 0 : 0;
 
   return (
     <div className="flex items-center justify-between gap-3 rounded-xl bg-white p-3 shadow" style={{ color: "var(--kb-ink)" }}>
-      <div className="min-w-0">
-        <p className="truncate text-sm font-semibold">{item.name}</p>
-        <p className="text-sm" style={{ color: "var(--kb-ink-soft)" }}>
-          ${item.price.toFixed(2)}
-        </p>
+      <div className="flex min-w-0 items-center gap-3">
+        {item.photo_url && (
+          <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg">
+            <Image src={item.photo_url} alt="" fill sizes="48px" className="object-cover" />
+          </div>
+        )}
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold">{item.name}</p>
+          <p className="text-sm" style={{ color: "var(--kb-ink-soft)" }}>
+            ${item.price.toFixed(2)}
+          </p>
+        </div>
       </div>
 
       {quantity === 0 ? (

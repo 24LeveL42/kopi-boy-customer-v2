@@ -29,7 +29,7 @@ export default async function MerchantPage({
 
   const { data: menuItems } = await supabase
     .from("menu_items")
-    .select("id, name, price")
+    .select("id, name, price, photo_url")
     .eq("kitchen_id", id)
     .order("created_at", { ascending: true });
 

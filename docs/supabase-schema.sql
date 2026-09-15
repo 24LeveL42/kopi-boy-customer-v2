@@ -582,6 +582,29 @@ where k.paynow_uen is null;
 
 
 -- ============================================================================
+-- KOPI BOY 2.0 — Kitchen Preparation Status
+-- Run this ONCE, after every script above, in the same Supabase project's
+-- SQL Editor.
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- 15. PREPARATION STATUS ON ORDERS
+-- Separate from order_status (accept/reject) and payment_status (PayNow),
+-- per the locked "order/payment/preparation/delivery/incident are separate
+-- status fields" rule in docs/feature-001.md. Set by the cook via the
+-- Partner app once an order is accepted; the Customer app reads it on the
+-- order confirmation screen. The existing "Customers can read their own
+-- orders" / "Cooks can update orders placed at their kitchen" policies and
+-- the table-level GRANTs in the section below already cover this column —
+-- GRANT SELECT/UPDATE in Postgres applies to every column on a table, so
+-- adding a column never needs its own grant or policy.
+-- ----------------------------------------------------------------------------
+alter table public.orders add column if not exists preparation_status text
+  not null default 'not_started'
+  check (preparation_status in ('not_started', 'preparing', 'ready'));
+
+
+-- ============================================================================
 -- KOPI BOY 2.0 — Table Grants
 -- RLS policies only apply once the calling Postgres role already has the
 -- underlying table privilege — GRANT is checked before RLS is ever

@@ -6,7 +6,9 @@ interface OrderRow {
   id: string;
   kitchen_id: string;
   subtotal: number;
-  status: string;
+  order_status: string;
+  payment_status: string;
+  preparation_status: string;
 }
 
 interface OrderItemRow {
@@ -14,6 +16,23 @@ interface OrderItemRow {
   name: string;
   price: number;
   quantity: number;
+}
+
+/**
+ * Maps order_status/preparation_status to the single-line stage message the
+ * customer sees. These are deliberately separate DB columns (locked business
+ * rule, docs/feature-001.md) but the customer just wants one clear sentence.
+ */
+function getStageMessage(orderStatus: string, preparationStatus: string): string {
+  if (orderStatus === "rejected") return "Kitchen declined this order";
+  if (orderStatus === "placed") return "Waiting for kitchen to accept";
+  if (preparationStatus === "ready") return "Ready — looking for a rider";
+  if (preparationStatus === "preparing") return "Cook is preparing your food";
+  return "Kitchen accepted your order";
+}
+
+function getPaymentMessage(paymentStatus: string): string {
+  return paymentStatus === "paid" ? "Payment received" : "Payment pending — pay the cook via PayNow once accepted";
 }
 
 /**
@@ -31,7 +50,7 @@ export default async function OrderConfirmationPage({
 
   const { data: order } = await supabase
     .from("orders")
-    .select("id, kitchen_id, subtotal, status")
+    .select("id, kitchen_id, subtotal, order_status, payment_status, preparation_status")
     .eq("id", id)
     .maybeSingle<OrderRow>();
 
@@ -55,6 +74,22 @@ export default async function OrderConfirmationPage({
           <h1 className="mt-4 font-display text-xl font-bold">Order placed!</h1>
           <p className="mt-1 text-sm" style={{ color: "var(--kb-ink-soft)" }}>
             {kitchen?.business_name ?? "The kitchen"} has received your order.
+          </p>
+
+          <p
+            className="mt-4 inline-block rounded-full px-3 py-1 text-xs font-semibold"
+            style={
+              order.order_status === "rejected"
+                ? { background: "rgba(239,68,68,0.12)", color: "var(--kb-danger)" }
+                : order.preparation_status === "ready"
+                  ? { background: "rgba(4,120,87,0.12)", color: "var(--kb-green-deep)" }
+                  : { background: "rgba(245,158,11,0.15)", color: "#92640A" }
+            }
+          >
+            {getStageMessage(order.order_status, order.preparation_status)}
+          </p>
+          <p className="mt-1.5 text-xs" style={{ color: "var(--kb-ink-soft)" }}>
+            {getPaymentMessage(order.payment_status)}
           </p>
 
           <div className="mt-5 space-y-2 text-left">
