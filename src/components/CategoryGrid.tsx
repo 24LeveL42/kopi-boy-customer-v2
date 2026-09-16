@@ -11,8 +11,8 @@ interface CategoryTile {
 const TILES: CategoryTile[] = [
   { id: "home-cook", label: "Home cooks", image: "/categories/home-cooks.jpg" },
   { id: "hawker", label: "Hawkers", image: "/categories/hawkers.jpg" },
-  { id: "bulk-orders", label: "Bulk Orders", image: "/categories/bulk-orders.jpg" },
-  { id: "bakery", label: "Bakers", image: "/categories/bakers.jpg" },
+  { id: "bulk-orders", label: "Vegetarian", image: "/categories/bulk-orders.jpg" },
+  { id: "bakery", label: "Bakery", image: "/categories/bakers.jpg" },
   { id: "drinks", label: "Drinks and Desserts", image: "/categories/drinks-desserts.jpg", wide: true },
 ];
 
