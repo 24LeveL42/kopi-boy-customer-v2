@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { OrderStatusPoller } from "@/components/OrderStatusPoller";
 
 interface OrderRow {
   id: string;
@@ -69,6 +70,10 @@ export default async function OrderConfirmationPage({
 
   if (!order) notFound();
 
+  const isSettled =
+    order.order_status === "rejected" ||
+    (order.preparation_status === "ready" && order.payment_status === "paid");
+
   const [{ data: kitchen }, { data: items }] = await Promise.all([
     supabase
       .from("kitchens")
@@ -80,6 +85,7 @@ export default async function OrderConfirmationPage({
 
   return (
     <div className="min-h-screen px-4 py-8 sm:px-6" style={{ background: "var(--kb-navy)", color: "var(--kb-on-navy)" }}>
+      <OrderStatusPoller isSettled={isSettled} />
       <div className="mx-auto max-w-sm">
         <div className="rounded-2xl bg-white p-6 text-center shadow-lg" style={{ color: "var(--kb-ink)" }}>
           <div
