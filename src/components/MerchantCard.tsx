@@ -6,7 +6,7 @@ const CATEGORY_LABEL: Record<Merchant["category"], string> = {
   "home-cook": "Home Cook",
   hawker: "Hawker",
   bakery: "Bakery",
-  "bulk-orders": "Bulk Orders",
+  "bulk-orders": "Vegetarian",
   drinks: "Desserts & Drinks",
 };
 

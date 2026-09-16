@@ -14,7 +14,7 @@ export const CATEGORIES: CategoryDef[] = [
   { id: "home-cook", label: "Home Cooks" },
   { id: "hawker", label: "Hawkers" },
   { id: "bakery", label: "Bakery" },
-  { id: "bulk-orders", label: "Bulk Orders" },
+  { id: "bulk-orders", label: "Vegetarian" },
   { id: "drinks", label: "Desserts & Drinks" },
 ];
 

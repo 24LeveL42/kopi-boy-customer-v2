@@ -84,7 +84,7 @@ function categoryLabel(id: MerchantCategory) {
     "home-cook": "Home Cooks",
     hawker: "Hawkers",
     bakery: "Bakery",
-    "bulk-orders": "Bulk Orders",
+    "bulk-orders": "Vegetarian",
     drinks: "Desserts & Drinks",
   };
   return labels[id];
