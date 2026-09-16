@@ -31,8 +31,21 @@ function getStageMessage(orderStatus: string, preparationStatus: string): string
   return "Kitchen accepted your order";
 }
 
-function getPaymentMessage(paymentStatus: string): string {
-  return paymentStatus === "paid" ? "Payment received" : "Payment pending — pay the cook via PayNow once accepted";
+function getPaynowInstruction(paynowType: string | null, paynowValue: string | null): string | null {
+  if (!paynowType || !paynowValue) return null;
+  return paynowType === "mobile" ? `Pay via PayNow to +65 ${paynowValue}` : `Pay via PayNow to UEN ${paynowValue}`;
+}
+
+function getPaymentMessage(
+  paymentStatus: string,
+  paynowType: string | null,
+  paynowValue: string | null
+): string {
+  if (paymentStatus === "paid") return "Payment received";
+  const paynowInstruction = getPaynowInstruction(paynowType, paynowValue);
+  return paynowInstruction
+    ? `Payment pending — ${paynowInstruction} once accepted`
+    : "Payment pending — pay the cook via PayNow once accepted";
 }
 
 /**
@@ -57,7 +70,11 @@ export default async function OrderConfirmationPage({
   if (!order) notFound();
 
   const [{ data: kitchen }, { data: items }] = await Promise.all([
-    supabase.from("kitchens").select("business_name").eq("id", order.kitchen_id).maybeSingle<{ business_name: string }>(),
+    supabase
+      .from("kitchens")
+      .select("business_name, paynow_type, paynow_value")
+      .eq("id", order.kitchen_id)
+      .maybeSingle<{ business_name: string; paynow_type: string | null; paynow_value: string | null }>(),
     supabase.from("order_items").select("id, name, price, quantity").eq("order_id", id).order("id").returns<OrderItemRow[]>(),
   ]);
 
@@ -89,7 +106,7 @@ export default async function OrderConfirmationPage({
             {getStageMessage(order.order_status, order.preparation_status)}
           </p>
           <p className="mt-1.5 text-xs" style={{ color: "var(--kb-ink-soft)" }}>
-            {getPaymentMessage(order.payment_status)}
+            {getPaymentMessage(order.payment_status, kitchen?.paynow_type ?? null, kitchen?.paynow_value ?? null)}
           </p>
 
           <div className="mt-5 space-y-2 text-left">

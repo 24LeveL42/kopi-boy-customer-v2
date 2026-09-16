@@ -604,6 +604,25 @@ alter table public.orders add column if not exists preparation_status text
   check (preparation_status in ('not_started', 'preparing', 'ready'));
 
 
+-- ----------------------------------------------------------------------------
+-- 16. PAYNOW TYPE/VALUE ON KITCHENS
+-- Replaces the UEN-only paynow_uen column: cooks can now register PayNow
+-- against either a mobile number or a UEN. paynow_type says which one
+-- paynow_value holds, so the Customer app's order confirmation screen can
+-- render the right label ("Pay via PayNow to +65 ..." vs "... to UEN ...").
+-- Existing paynow_uen values are all UENs (the only option before this
+-- change), so they backfill straight into paynow_value with type 'uen'.
+-- ----------------------------------------------------------------------------
+alter table public.kitchens add column if not exists paynow_type text check (paynow_type in ('mobile', 'uen'));
+alter table public.kitchens add column if not exists paynow_value text;
+
+update public.kitchens
+set paynow_type = 'uen', paynow_value = paynow_uen
+where paynow_uen is not null and paynow_value is null;
+
+alter table public.kitchens drop column if exists paynow_uen;
+
+
 -- ============================================================================
 -- KOPI BOY 2.0 — Table Grants
 -- RLS policies only apply once the calling Postgres role already has the
