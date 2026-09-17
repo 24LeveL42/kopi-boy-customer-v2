@@ -9,6 +9,8 @@ interface KitchenRow {
   neighbourhood: string;
   description: string | null;
   hero_image: string | null;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 interface MenuItemRow {
@@ -37,8 +39,12 @@ const CATEGORY_FALLBACK_IMAGE: Record<Merchant["category"], string> = {
 /**
  * Real merchants for the marketplace — Feature #003.
  *
- * Distance/ETA aren't modeled yet (no geolocation feature exists), so they're
- * fixed placeholders here rather than computed. Ratings are all zero with
+ * ETA isn't modeled yet, so it's a fixed placeholder here rather than
+ * computed. Distance is left null here on purpose — it depends on the
+ * customer's own location, which this server-side fetch has no access to;
+ * <Marketplace> computes it client-side (Haversine, see src/lib/distance.ts)
+ * once the customer has shared their location, using the kitchen's
+ * latitude/longitude passed through below. Ratings are all zero with
  * `isNew: true` since Feature #009 (ratings) hasn't shipped — replace both
  * of these when those features land. `demo-data.ts` (Feature #001) is no
  * longer used for the live home page; kept only for the test fixtures.
@@ -82,7 +88,9 @@ export async function getLiveMerchants(): Promise<Merchant[]> {
       rating: 0,
       ratingCount: 0,
       etaMinutes: 30,
-      distanceKm: 0,
+      distanceKm: null,
+      latitude: k.latitude,
+      longitude: k.longitude,
       priceFrom: prices.length > 0 ? Math.min(...prices) : 0,
       heroImage: image,
       avatarImage: image,

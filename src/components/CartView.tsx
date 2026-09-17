@@ -1,16 +1,47 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCart } from "@/lib/cart-context";
 import { placeOrder } from "@/lib/order-actions";
+import { useCustomerLocation } from "@/lib/use-customer-location";
+import { haversineDistanceKm, estimateDeliveryFee } from "@/lib/distance";
+import { createClient } from "@/lib/supabase/client";
 
 export function CartView({ isSignedIn }: { isSignedIn: boolean }) {
   const { cart, setQuantity, subtotal, clearCart } = useCart();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const { coords, status: locationStatus, requestLocation } = useCustomerLocation();
+  const [kitchenCoords, setKitchenCoords] = useState<{ latitude: number | null; longitude: number | null } | null>(
+    null
+  );
+
+  // Fetched fresh at checkout (not carried in the cart) so the fee estimate
+  // reflects the kitchen's current coordinates.
+  useEffect(() => {
+    if (!cart) return;
+    let cancelled = false;
+    createClient()
+      .from("kitchens")
+      .select("latitude, longitude")
+      .eq("id", cart.kitchenId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) setKitchenCoords(data ?? null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cart]);
+
+  const distanceKm =
+    coords && kitchenCoords?.latitude != null && kitchenCoords?.longitude != null
+      ? haversineDistanceKm(coords.latitude, coords.longitude, kitchenCoords.latitude, kitchenCoords.longitude)
+      : null;
+  const deliveryFeeEstimate = distanceKm != null ? estimateDeliveryFee(distanceKm) : null;
 
   if (!cart || cart.items.length === 0) {
     return (
@@ -39,7 +70,8 @@ export function CartView({ isSignedIn }: { isSignedIn: boolean }) {
       try {
         const { orderId } = await placeOrder(
           cart.kitchenId,
-          cart.items.map((i) => ({ menuItemId: i.menuItemId, quantity: i.quantity }))
+          cart.items.map((i) => ({ menuItemId: i.menuItemId, quantity: i.quantity })),
+          coords
         );
         clearCart();
         router.push(`/orders/${orderId}`);
@@ -93,12 +125,55 @@ export function CartView({ isSignedIn }: { isSignedIn: boolean }) {
           ))}
         </div>
 
-        <div
-          className="mt-6 flex items-center justify-between rounded-xl bg-white p-4 shadow"
-          style={{ color: "var(--kb-ink)" }}
-        >
-          <span className="font-semibold">Subtotal</span>
-          <span className="font-semibold">${subtotal.toFixed(2)}</span>
+        <div className="mt-6 rounded-xl bg-white p-4 shadow" style={{ color: "var(--kb-ink)" }}>
+          {!coords && (
+            <div className="mb-3">
+              <button
+                type="button"
+                onClick={requestLocation}
+                disabled={locationStatus === "locating"}
+                className="w-full rounded-xl border px-3 py-2.5 text-sm font-medium disabled:opacity-60"
+                style={{ borderColor: "#E5E7EB", color: "var(--kb-purple)" }}
+              >
+                {locationStatus === "locating" ? "Getting your location…" : "Use my current location"}
+              </button>
+              {locationStatus === "denied" && (
+                <p className="mt-1 text-xs" style={{ color: "var(--kb-ink-soft)" }}>
+                  Location permission was denied — no problem, you can still place your order. We just
+                  won&apos;t be able to estimate the delivery fee up front.
+                </p>
+              )}
+              {locationStatus === "unavailable" && (
+                <p className="mt-1 text-xs" style={{ color: "var(--kb-ink-soft)" }}>
+                  Couldn&apos;t get your location right now — no problem, this is optional and won&apos;t stop
+                  your order.
+                </p>
+              )}
+              {locationStatus === "unsupported" && (
+                <p className="mt-1 text-xs" style={{ color: "var(--kb-ink-soft)" }}>
+                  Your browser doesn&apos;t support location detection — no problem, this is optional.
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center justify-between">
+            <span className="font-semibold">Subtotal</span>
+            <span className="font-semibold">${subtotal.toFixed(2)}</span>
+          </div>
+
+          {deliveryFeeEstimate != null && (
+            <>
+              <div className="mt-2 flex items-center justify-between text-sm" style={{ color: "var(--kb-ink-soft)" }}>
+                <span>Estimated delivery fee</span>
+                <span>${deliveryFeeEstimate.toFixed(2)}</span>
+              </div>
+              <p className="mt-1 text-xs" style={{ color: "var(--kb-ink-soft)" }}>
+                Estimate only, based on distance — the cook and rider confirm the actual fee between
+                themselves. Not collected by Kopi Boy; pay the cook directly via PayNow once accepted.
+              </p>
+            </>
+          )}
         </div>
 
         {isSignedIn ? (

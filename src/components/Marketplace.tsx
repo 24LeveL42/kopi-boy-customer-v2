@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { CUISINES } from "@/lib/demo-data";
 import { Merchant, MerchantCategory, CuisineType } from "@/lib/types";
+import { haversineDistanceKm } from "@/lib/distance";
+import { useCustomerLocation } from "@/lib/use-customer-location";
 import { SearchBar } from "./SearchBar";
 import { CategoryGrid } from "./CategoryGrid";
 import { CuisineFilter } from "./CuisineFilter";
@@ -36,15 +38,29 @@ export function Marketplace({ merchants }: { merchants: Merchant[] }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<MerchantCategory | "all">("all");
   const [cuisine, setCuisine] = useState<CuisineType | "all">("all");
+  const { coords } = useCustomerLocation();
+
+  // Real distance only once the customer has shared their location (e.g. at
+  // checkout on a previous order — see src/lib/use-customer-location.ts) and
+  // the kitchen has coordinates of its own; otherwise MerchantCard shows
+  // "Distance unavailable" rather than blocking browsing.
+  const withDistance = useMemo(() => {
+    if (!coords) return merchants;
+    return merchants.map((m) =>
+      m.latitude != null && m.longitude != null
+        ? { ...m, distanceKm: haversineDistanceKm(coords.latitude, coords.longitude, m.latitude, m.longitude) }
+        : m
+    );
+  }, [merchants, coords]);
 
   const filtered = useMemo(
-    () => filterMerchants(merchants, query, category, cuisine),
-    [merchants, query, category, cuisine]
+    () => filterMerchants(withDistance, query, category, cuisine),
+    [withDistance, query, category, cuisine]
   );
 
   const popular = useMemo(
-    () => [...merchants].sort((a, b) => b.rating - a.rating).slice(0, 6),
-    [merchants]
+    () => [...withDistance].sort((a, b) => b.rating - a.rating).slice(0, 6),
+    [withDistance]
   );
 
   const isBrowsing = query.trim() !== "" || category !== "all" || cuisine !== "all";
@@ -68,7 +84,7 @@ export function Marketplace({ merchants }: { merchants: Merchant[] }) {
         ) : (
           <>
             <MerchantGrid merchants={popular} heading="🔥 Popular Near You" showSeeAll />
-            <MerchantGrid merchants={merchants} heading="All Cooks & Stalls" />
+            <MerchantGrid merchants={withDistance} heading="All Cooks & Stalls" />
           </>
         )}
       </main>

@@ -37,7 +37,12 @@ export interface Merchant {
   rating: number; // 0-5
   ratingCount: number;
   etaMinutes: number;
-  distanceKm: number;
+  // null until the customer has shared their location (see
+  // src/lib/use-customer-location.ts) and the kitchen has coordinates of its
+  // own — computed client-side via Haversine, not stored on the kitchen row.
+  distanceKm: number | null;
+  latitude: number | null;
+  longitude: number | null;
   priceFrom: number; // SGD, cheapest menu item
   heroImage: string;
   avatarImage: string;

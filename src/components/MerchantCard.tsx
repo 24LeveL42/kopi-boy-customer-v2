@@ -54,7 +54,8 @@ export function MerchantCard({ merchant }: { merchant: Merchant }) {
           className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-white"
           style={{ background: "rgba(11,27,52,0.72)" }}
         >
-          <PinIcon /> {merchant.neighbourhood} &middot; {merchant.distanceKm} km
+          <PinIcon /> {merchant.neighbourhood} &middot;{" "}
+          {merchant.distanceKm != null ? `${merchant.distanceKm.toFixed(1)} km` : "Distance unavailable"}
         </span>
       </div>
 

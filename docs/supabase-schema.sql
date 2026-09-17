@@ -624,6 +624,50 @@ alter table public.kitchens drop column if exists paynow_uen;
 
 
 -- ============================================================================
+-- KOPI BOY 2.0 — Kitchen + Customer Geolocation
+-- Run this ONCE, after every script above, in the same Supabase project's
+-- SQL Editor.
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- 17. LATITUDE + LONGITUDE ON KITCHENS
+-- Real coordinates alongside (not replacing) the free-text `neighbourhood`
+-- field, captured via the browser's Geolocation API in the Partner app's
+-- KitchenSetupForm (this column's migration lives there too — repeated here,
+-- idempotently, so this repo's copy of the schema stays a complete, run-once
+-- script). Optional: a cook can decline the permission prompt and still go
+-- live with neighbourhood text alone.
+-- ----------------------------------------------------------------------------
+alter table public.kitchens add column if not exists latitude numeric(9,6);
+alter table public.kitchens add column if not exists longitude numeric(9,6);
+
+-- ----------------------------------------------------------------------------
+-- 18. CUSTOMER LOCATION + DELIVERY FEE ESTIMATE ON ORDERS
+-- customer_lat/customer_lng are captured once at checkout via "Use my
+-- current location" (see src/lib/use-customer-location.ts) and saved with
+-- the order — not a live profile field, just a one-time snapshot for that
+-- delivery. Both optional: declining the permission prompt (or an
+-- unsupported browser) never blocks placing an order, it just leaves these
+-- null and skips delivery_fee_estimate.
+--
+-- delivery_fee_estimate is computed server-side in placeOrder() from
+-- customer_lat/lng and the kitchen's own latitude/longitude (Haversine
+-- straight-line distance, see src/lib/distance.ts) — never trusted from the
+-- client, same as subtotal above. It's shown to the customer as an estimate
+-- only: per the locked "delivery fee belongs 100% to the rider, cook pays
+-- rider on pickup" rule (docs/feature-001.md), the real fee is agreed
+-- directly between cook and rider off-platform, not collected here.
+--
+-- No new GRANT needed — same as sections 15/16, the existing
+-- `grant select, insert, update on public.orders to authenticated` below is
+-- table-level and already covers these columns.
+-- ----------------------------------------------------------------------------
+alter table public.orders add column if not exists customer_lat numeric(9,6);
+alter table public.orders add column if not exists customer_lng numeric(9,6);
+alter table public.orders add column if not exists delivery_fee_estimate numeric(5,2);
+
+
+-- ============================================================================
 -- KOPI BOY 2.0 — Table Grants
 -- RLS policies only apply once the calling Postgres role already has the
 -- underlying table privilege — GRANT is checked before RLS is ever
