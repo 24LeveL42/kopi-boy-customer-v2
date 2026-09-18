@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { CartProvider } from "@/lib/cart-context";
+import { PageChrome } from "@/components/PageChrome";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -12,7 +13,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
-        <CartProvider>{children}</CartProvider>
+        <CartProvider>
+          <PageChrome />
+          {children}
+        </CartProvider>
       </body>
     </html>
   );

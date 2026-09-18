@@ -694,3 +694,64 @@ grant select, insert, update on public.orders to authenticated;
 grant select, insert on public.order_items to authenticated;
 grant select, insert, update, delete on public.kitchens to authenticated;
 grant select, insert, update, delete on public.menu_items to authenticated;
+
+
+-- ============================================================================
+-- KOPI BOY 2.0 — Customer order cancellation + delivery status visibility
+-- Run this ONCE, after every script above, in the same Supabase project's
+-- SQL Editor. `order_status = 'cancelled'` and `delivery_requests` (with its
+-- `release_requested` state) already exist live, added by the Partner app's
+-- own migrations (Feature #008 + rider-release follow-up) — this section is
+-- this repo's idempotent copy of those, same convention as section 17,
+-- plus the pieces that are specifically this app's: the customer-cancel
+-- policy and the customer's read access to delivery_requests.
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- 19. ORDER CANCELLATION
+-- A customer can cancel their own order only while it's still 'placed' — the
+-- app's cancelOrder() action includes `order_status = 'placed'` in its
+-- update's WHERE clause (same "current state in the WHERE clause" pattern as
+-- every other transition here), and this policy is the server-side backstop
+-- for that same rule. decided_at now also marks "when order_status last
+-- moved away from placed", covering cancel same as accept/reject.
+-- ----------------------------------------------------------------------------
+alter table public.orders drop constraint if exists orders_order_status_check;
+alter table public.orders add constraint orders_order_status_check
+  check (order_status in ('placed', 'accepted', 'rejected', 'cancelled'));
+
+alter table public.orders add column if not exists ready_at timestamptz; -- set when preparation_status moves to 'ready'
+
+drop policy if exists "Customers can cancel their own placed orders" on public.orders;
+create policy "Customers can cancel their own placed orders"
+  on public.orders for update
+  using (auth.uid() = customer_id and order_status = 'placed')
+  with check (auth.uid() = customer_id and order_status = 'cancelled');
+
+-- ----------------------------------------------------------------------------
+-- 20. DELIVERY REQUESTS (idempotent copy — owned by the Partner app, see #008)
+-- ----------------------------------------------------------------------------
+create table if not exists public.delivery_requests (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null references public.orders(id) on delete cascade,
+  kitchen_id uuid not null references public.kitchens(id) on delete cascade,
+  rider_id uuid references public.profiles(id),
+  status text not null default 'open' check (status in ('open', 'accepted', 'completed', 'cancelled', 'release_requested')),
+  created_at timestamptz not null default now(),
+  accepted_at timestamptz,
+  completed_at timestamptz
+);
+
+alter table public.delivery_requests enable row level security;
+
+grant select, insert, update on public.delivery_requests to authenticated;
+
+-- Customer-facing addition: the order confirmation screen's rider-assigned /
+-- delivered stages need to read the delivery_requests row for the
+-- customer's own order — none of the Partner app's policies cover that.
+drop policy if exists "Customers can read delivery requests for their own orders" on public.delivery_requests;
+create policy "Customers can read delivery requests for their own orders"
+  on public.delivery_requests for select
+  using (
+    exists (select 1 from public.orders o where o.id = delivery_requests.order_id and o.customer_id = auth.uid())
+  );

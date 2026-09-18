@@ -95,3 +95,31 @@ export async function placeOrder(
 
   return { orderId: order.id };
 }
+
+/**
+ * Cancels a customer's own order — only while it's still `placed`. The
+ * `.eq("order_status", "placed")` guard is the same "app's update call
+ * includes the expected current state in its WHERE clause" pattern used for
+ * every other order/request transition in this codebase (see CookOrdersPanel
+ * in the Partner app): if the kitchen has already accepted/rejected it by
+ * the time this runs, the update matches 0 rows instead of racing the cook's
+ * decision. RLS (customer owns the order + order_status = 'placed') enforces
+ * the same rule server-side.
+ */
+export async function cancelOrder(orderId: string): Promise<void> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Please sign in to cancel this order.");
+
+  const { data, error } = await supabase
+    .from("orders")
+    .update({ order_status: "cancelled", decided_at: new Date().toISOString() })
+    .eq("id", orderId)
+    .eq("order_status", "placed")
+    .select("id")
+    .maybeSingle();
+  if (error) throw new Error(`Couldn't cancel order: ${error.message}`);
+  if (!data) throw new Error("This order can no longer be cancelled — the kitchen has already responded.");
+}
