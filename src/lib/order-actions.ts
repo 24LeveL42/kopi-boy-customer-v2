@@ -96,6 +96,8 @@ export async function placeOrder(
   return { orderId: order.id };
 }
 
+export type CancelOrderResult = { ok: true } | { ok: false; message: string };
+
 /**
  * Cancels a customer's own order — only while it's still `placed`. The
  * `.eq("order_status", "placed")` guard is the same "app's update call
@@ -105,13 +107,20 @@ export async function placeOrder(
  * the time this runs, the update matches 0 rows instead of racing the cook's
  * decision. RLS (customer owns the order + order_status = 'placed') enforces
  * the same rule server-side.
+ *
+ * Returns a result object rather than throwing for these expected outcomes.
+ * Next.js redacts a thrown Error's message from a Server Action in
+ * production (replaced with a generic "Minified React error" digest, to
+ * avoid leaking server internals) — a caller's try/catch still fires, but
+ * `error.message` is useless for anything meant to be shown to the
+ * customer. A returned string has no such restriction.
  */
-export async function cancelOrder(orderId: string): Promise<void> {
+export async function cancelOrder(orderId: string): Promise<CancelOrderResult> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) throw new Error("Please sign in to cancel this order.");
+  if (!user) return { ok: false, message: "Please sign in to cancel this order." };
 
   const { data, error } = await supabase
     .from("orders")
@@ -120,6 +129,7 @@ export async function cancelOrder(orderId: string): Promise<void> {
     .eq("order_status", "placed")
     .select("id")
     .maybeSingle();
-  if (error) throw new Error(`Couldn't cancel order: ${error.message}`);
-  if (!data) throw new Error("This order can no longer be cancelled — the kitchen has already responded.");
+  if (error) return { ok: false, message: `Couldn't cancel order: ${error.message}` };
+  if (!data) return { ok: false, message: "This order can no longer be cancelled — the kitchen has already responded." };
+  return { ok: true };
 }

@@ -5,12 +5,17 @@ import { useRouter } from "next/navigation";
 import { cancelOrder } from "@/lib/order-actions";
 
 /**
- * Server Actions invoked outside a <form> must be wrapped in startTransition
- * (see node_modules/next/dist/docs/01-app/02-guides/server-actions.md) —
- * without it, a thrown error doesn't reach this component's try/catch as a
- * normal rejection; it surfaces as an uncaught Server Components render
- * error instead, which crashes the whole page. Same pattern CartView
- * already uses for placeOrder().
+ * Invokes cancelOrder() (a Server Action) via startTransition, per this
+ * repo's own Next.js docs (node_modules/next/dist/docs/01-app/02-guides/
+ * server-actions.md) — same pattern CartView already uses for placeOrder().
+ *
+ * cancelOrder() returns { ok, message } rather than throwing for its
+ * expected failure case: Next.js redacts a thrown Error's message from a
+ * Server Action in production (replaced with a generic "Minified React
+ * error" digest), so relying on a caught exception's `.message` here would
+ * show that digest instead of the real "kitchen already responded" text.
+ * The try/catch below is just a fallback for a genuinely unexpected
+ * exception (e.g. a network failure before the action even runs).
  */
 export function CancelOrderButton({ orderId }: { orderId: string }) {
   const router = useRouter();
@@ -22,14 +27,17 @@ export function CancelOrderButton({ orderId }: { orderId: string }) {
     setError(null);
     startTransition(async () => {
       try {
-        await cancelOrder(orderId);
+        const result = await cancelOrder(orderId);
+        if (!result.ok) {
+          // Can legitimately happen if the kitchen decided in the time
+          // since this page last polled — refresh either way so the stage
+          // message and this button catch up to reality instead of
+          // leaving a stale "Cancel order" button next to the error.
+          setError(result.message);
+        }
         router.refresh();
-      } catch (e) {
-        // The guard in cancelOrder() can legitimately fire if the kitchen
-        // decided in the time since this page last polled — refresh either
-        // way so the stage message and this button catch up to reality
-        // instead of leaving a stale "Cancel order" button next to the error.
-        setError(e instanceof Error ? e.message : "Couldn't cancel this order.");
+      } catch {
+        setError("Couldn't cancel this order — please try again.");
         router.refresh();
       }
     });

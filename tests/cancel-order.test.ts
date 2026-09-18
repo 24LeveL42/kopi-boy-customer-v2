@@ -47,7 +47,7 @@ describe("cancelOrder", () => {
     const supabase = makeSupabaseMock("customer-1", { data: { id: "order-1" }, error: null });
     vi.mocked(createClient).mockResolvedValue(supabase as never);
 
-    await expect(cancelOrder("order-1")).resolves.toBeUndefined();
+    await expect(cancelOrder("order-1")).resolves.toEqual({ ok: true });
 
     expect(supabase.from).toHaveBeenCalledWith("orders");
     expect(supabase.updateCalls[0]).toMatchObject({ order_status: "cancelled" });
@@ -59,20 +59,31 @@ describe("cancelOrder", () => {
     const supabase = makeSupabaseMock("customer-1", { data: null, error: null });
     vi.mocked(createClient).mockResolvedValue(supabase as never);
 
-    await expect(cancelOrder("order-1")).rejects.toThrow(/no longer be cancelled/i);
+    // Returned, not thrown: a thrown Error's message is redacted by Next.js
+    // in production for Server Actions, so this must survive as real data.
+    await expect(cancelOrder("order-1")).resolves.toMatchObject({
+      ok: false,
+      message: expect.stringMatching(/no longer be cancelled/i),
+    });
   });
 
   it("surfaces a Supabase error instead of silently failing", async () => {
     const supabase = makeSupabaseMock("customer-1", { data: null, error: { message: "boom" } });
     vi.mocked(createClient).mockResolvedValue(supabase as never);
 
-    await expect(cancelOrder("order-1")).rejects.toThrow(/boom/);
+    await expect(cancelOrder("order-1")).resolves.toMatchObject({
+      ok: false,
+      message: expect.stringMatching(/boom/),
+    });
   });
 
   it("requires a signed-in customer", async () => {
     const supabase = makeSupabaseMock(null, { data: null, error: null });
     vi.mocked(createClient).mockResolvedValue(supabase as never);
 
-    await expect(cancelOrder("order-1")).rejects.toThrow(/sign in/i);
+    await expect(cancelOrder("order-1")).resolves.toMatchObject({
+      ok: false,
+      message: expect.stringMatching(/sign in/i),
+    });
   });
 });
