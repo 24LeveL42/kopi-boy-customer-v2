@@ -3,7 +3,7 @@ import Image from "next/image";
 /**
  * White hero card on the marketplace home screen. Renders the approved
  * hero artwork directly — public/brand/logo-hero.jpg (icon + wordmark +
- * tagline + icon row, already composited on the brand green background).
+ * tagline + icon row, already composited on a white background).
  * Do not recreate this by hand; if the artwork changes, replace this file.
  */
 export function LogoCard() {
