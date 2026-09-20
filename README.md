@@ -35,8 +35,12 @@ Done:
   checkout, which creates a real `orders` row (`status = 'placed'`) plus its
   `order_items`, then lands on an order confirmation screen (`/orders/[id]`)
 - Auth: phone OTP (Vonage) + Google Sign-In, `/login`, `/account`
-- Testing — Vitest + Testing Library, 11 passing tests on the search/filter
-  logic (fixtures only, not tied to demo-data.ts)
+- In-app notifications — bell + unread badge, live toast and `/notifications`
+  inbox, driven by Supabase Realtime; the order page also updates live instead
+  of polling (see `docs/notifications.md`; needs the last section of
+  `docs/supabase-schema.sql` run once)
+- Testing — Vitest + Testing Library (search/filter logic, order status,
+  cancellation, notifications + Realtime behaviour)
 
 Not done yet (by design — see build sequence):
 - PayNow, cook accept/reject, delivery, ratings, complaints, admin —

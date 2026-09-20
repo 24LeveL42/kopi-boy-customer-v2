@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { OrderStatusPoller } from "@/components/OrderStatusPoller";
+import { OrderRealtimeRefresher } from "@/components/OrderRealtimeRefresher";
 import { CancelOrderButton } from "@/components/CancelOrderButton";
 
 export interface OrderRow {
@@ -164,7 +164,7 @@ export default async function OrderConfirmationPage({
 
   return (
     <div className="min-h-screen px-4 py-8 sm:px-6" style={{ background: "var(--kb-navy)", color: "var(--kb-on-navy)" }}>
-      <OrderStatusPoller isSettled={isSettled} />
+      <OrderRealtimeRefresher orderId={order.id} isSettled={isSettled} />
       <div className="mx-auto max-w-sm">
         <div className="rounded-2xl bg-white p-6 text-center shadow-lg" style={{ color: "var(--kb-ink)" }}>
           <div

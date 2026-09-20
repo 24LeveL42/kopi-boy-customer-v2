@@ -755,3 +755,252 @@ create policy "Customers can read delivery requests for their own orders"
   using (
     exists (select 1 from public.orders o where o.id = delivery_requests.order_id and o.customer_id = auth.uid())
   );
+
+
+-- ============================================================================
+-- KOPI BOY 2.0 — Customer notifications (in-app inbox + live toast)
+-- Run this ONCE, after every script above, in the same Supabase project's
+-- SQL Editor. Safe to re-run (idempotent).
+--
+-- The Partner app (cook/rider) is what moves order_status / payment_status /
+-- preparation_status / delivery_requests.status, so notifications are created
+-- by database triggers on those tables — NOT by this app's code — which means
+-- the Partner app needs no changes. The Customer app only reads its own rows
+-- (Supabase Realtime pushes new ones to any open tab) and marks them read.
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- 21. NOTIFICATIONS
+-- One row per customer-facing event. `read_at` null = unread. Rows are
+-- written ONLY by the trigger functions below (SECURITY DEFINER) — the
+-- `authenticated` role gets no INSERT/DELETE at all, so a customer can't
+-- forge or wipe notifications, and can only ever flip read_at on their own.
+-- ----------------------------------------------------------------------------
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  order_id uuid references public.orders(id) on delete cascade,
+  type text not null check (type in (
+    'order_placed', 'order_accepted', 'order_rejected', 'payment_received',
+    'order_ready', 'rider_assigned', 'order_delivered', 'order_cancelled'
+  )),
+  title text not null,
+  body text not null,
+  created_at timestamptz not null default now(),
+  read_at timestamptz
+);
+
+create index if not exists notifications_user_created_idx
+  on public.notifications (user_id, created_at desc);
+
+alter table public.notifications enable row level security;
+
+drop policy if exists "Users can read their own notifications" on public.notifications;
+create policy "Users can read their own notifications"
+  on public.notifications for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can mark their own notifications read" on public.notifications;
+create policy "Users can mark their own notifications read"
+  on public.notifications for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- Supabase auto-grants every new public table to anon + authenticated via
+-- default privileges, so start from zero and grant back only what's needed:
+-- read own rows, and update the read_at column only (column-level grant —
+-- title/body/type/user_id can never be edited from the client).
+revoke all on public.notifications from anon, authenticated;
+grant select on public.notifications to authenticated;
+grant update (read_at) on public.notifications to authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 22. REALTIME
+-- Adds the tables the Customer app subscribes to (postgres_changes) to the
+-- supabase_realtime publication: `notifications` drives the bell/toast, and
+-- `orders` + `delivery_requests` let an open order page refresh the moment
+-- the cook/rider acts, instead of polling. Realtime only delivers a row to a
+-- subscriber whose RLS SELECT policy allows it, so a customer still only ever
+-- receives their own rows. ALTER PUBLICATION ... ADD TABLE isn't idempotent
+-- on its own (errors if already a member), hence the guards.
+-- ----------------------------------------------------------------------------
+do $$
+declare
+  t text;
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    foreach t in array array['notifications', 'orders', 'delivery_requests'] loop
+      if not exists (
+        select 1 from pg_publication_tables
+        where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
+      ) then
+        execute format('alter publication supabase_realtime add table public.%I', t);
+      end if;
+    end loop;
+  end if;
+end $$;
+
+-- ----------------------------------------------------------------------------
+-- 23. NOTIFICATION WRITER
+-- The single place a notification row gets inserted. SECURITY DEFINER so it
+-- can write past RLS/GRANTs, which is exactly why EXECUTE is revoked from
+-- every client role below — otherwise PostgREST would expose it as
+-- /rpc/create_customer_notification and anyone could forge notifications.
+-- Trigger functions run as the table owner, which keeps EXECUTE.
+-- ----------------------------------------------------------------------------
+create or replace function public.create_customer_notification(
+  p_user_id uuid,
+  p_order_id uuid,
+  p_type text,
+  p_title text,
+  p_body text
+) returns void
+language sql
+security definer
+set search_path = public
+as $$
+  insert into public.notifications (user_id, order_id, type, title, body)
+  values (p_user_id, p_order_id, p_type, p_title, p_body);
+$$;
+
+revoke all on function public.create_customer_notification(uuid, uuid, text, text, text)
+  from public, anon, authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 24. TRIGGERS
+-- orders: placed (insert), then order_status -> accepted/rejected/cancelled,
+-- payment_status -> paid, preparation_status -> ready. Every branch is guarded
+-- by IS DISTINCT FROM so re-saving an unchanged value never re-notifies.
+-- delivery_requests: status -> accepted (rider assigned) / completed
+-- (delivered). Like the writer above, both are SECURITY DEFINER (they read
+-- kitchens, which a customer's RLS may not show — e.g. a kitchen that has
+-- since gone offline) and are not callable by clients.
+-- Event timers (kitchen slow to accept, no rider found, payment reminder)
+-- are intentionally NOT here — they'll need a scheduler (pg_cron).
+-- ----------------------------------------------------------------------------
+create or replace function public.notify_customer_on_order_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_kitchen text;
+  v_paynow_type text;
+  v_paynow_value text;
+  v_pay_hint text := '';
+begin
+  select k.business_name, k.paynow_type, k.paynow_value
+    into v_kitchen, v_paynow_type, v_paynow_value
+  from public.kitchens k
+  where k.id = new.kitchen_id;
+  v_kitchen := coalesce(v_kitchen, 'The kitchen');
+
+  if tg_op = 'INSERT' then
+    perform public.create_customer_notification(
+      new.customer_id, new.id, 'order_placed', 'Order sent',
+      v_kitchen || ' has received your order. Waiting for them to accept.'
+    );
+    return new;
+  end if;
+
+  if new.order_status is distinct from old.order_status then
+    if new.order_status = 'accepted' then
+      if new.payment_status <> 'paid' then
+        v_pay_hint := case
+          when v_paynow_value is null then ' Please pay the cook via PayNow.'
+          when v_paynow_type = 'mobile' then ' Pay via PayNow to +65 ' || v_paynow_value || '.'
+          else ' Pay via PayNow to UEN ' || v_paynow_value || '.'
+        end;
+      end if;
+      perform public.create_customer_notification(
+        new.customer_id, new.id, 'order_accepted', 'Order accepted',
+        v_kitchen || ' accepted your order.' || v_pay_hint
+      );
+    elsif new.order_status = 'rejected' then
+      perform public.create_customer_notification(
+        new.customer_id, new.id, 'order_rejected', 'Order rejected',
+        v_kitchen || ' couldn''t take your order. Try another kitchen.'
+      );
+    elsif new.order_status = 'cancelled' then
+      perform public.create_customer_notification(
+        new.customer_id, new.id, 'order_cancelled', 'Order cancelled',
+        'Your order from ' || v_kitchen || ' was cancelled.'
+      );
+    end if;
+  end if;
+
+  if new.payment_status is distinct from old.payment_status and new.payment_status = 'paid' then
+    perform public.create_customer_notification(
+      new.customer_id, new.id, 'payment_received', 'Payment received',
+      v_kitchen || ' confirmed your payment. Thank you!'
+    );
+  end if;
+
+  if new.preparation_status is distinct from old.preparation_status and new.preparation_status = 'ready' then
+    perform public.create_customer_notification(
+      new.customer_id, new.id, 'order_ready', 'Food is ready',
+      v_kitchen || ' has finished preparing your food. Looking for a rider.'
+    );
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.notify_customer_on_order_change() from public, anon, authenticated;
+
+drop trigger if exists notify_customer_on_order_change on public.orders;
+create trigger notify_customer_on_order_change
+  after insert or update of order_status, payment_status, preparation_status on public.orders
+  for each row execute function public.notify_customer_on_order_change();
+
+create or replace function public.notify_customer_on_delivery_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_customer_id uuid;
+  v_kitchen text;
+begin
+  if tg_op = 'UPDATE' and new.status is not distinct from old.status then
+    return new;
+  end if;
+  if new.status not in ('accepted', 'completed') then
+    return new;
+  end if;
+
+  select o.customer_id, k.business_name
+    into v_customer_id, v_kitchen
+  from public.orders o
+  left join public.kitchens k on k.id = o.kitchen_id
+  where o.id = new.order_id;
+  if v_customer_id is null then
+    return new;
+  end if;
+  v_kitchen := coalesce(v_kitchen, 'the kitchen');
+
+  if new.status = 'accepted' then
+    perform public.create_customer_notification(
+      v_customer_id, new.order_id, 'rider_assigned', 'Rider on the way',
+      'A rider has been assigned and is heading to ' || v_kitchen || ' to pick up your order.'
+    );
+  else
+    perform public.create_customer_notification(
+      v_customer_id, new.order_id, 'order_delivered', 'Order delivered',
+      'Your order from ' || v_kitchen || ' has been delivered. Enjoy!'
+    );
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.notify_customer_on_delivery_change() from public, anon, authenticated;
+
+drop trigger if exists notify_customer_on_delivery_change on public.delivery_requests;
+create trigger notify_customer_on_delivery_change
+  after insert or update of status on public.delivery_requests
+  for each row execute function public.notify_customer_on_delivery_change();
