@@ -13,6 +13,8 @@ const db = vi.hoisted(() => ({
 // to the table's canned data, so the page runs its real code path.
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
+    // Rider lookup (covered in order-rider.test.tsx) — irrelevant to the bar.
+    rpc: () => Promise.resolve({ data: [{ full_name: "Ahmad", photo_url: null }], error: null }),
     from(table: string) {
       const result = () => {
         if (table === "orders") return { data: db.order };

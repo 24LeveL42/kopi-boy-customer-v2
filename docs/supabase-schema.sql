@@ -756,6 +756,43 @@ create policy "Customers can read delivery requests for their own orders"
     exists (select 1 from public.orders o where o.id = delivery_requests.order_id and o.customer_id = auth.uid())
   );
 
+-- ----------------------------------------------------------------------------
+-- 20a. RIDER INFO FOR THE CUSTOMER'S ORDER (name + photo only)
+-- Once a rider accepts a delivery, the order page shows "Your rider: {name}"
+-- with their photo. profiles RLS only lets a user read their own row, and RLS
+-- is row-level — a "customers can read riders' profiles" policy would also
+-- hand every customer the rider's phone / contact_number. So instead of a
+-- policy, this SECURITY DEFINER function returns exactly two columns, and only
+-- for: the caller's own order, whose delivery is accepted or completed (a
+-- released / open / cancelled request reveals nobody — same rule as the
+-- app's pickActiveDelivery: completed wins, else accepted).
+--
+-- DEPENDS ON profiles.photo_url, added by the Partner app's rider-photo
+-- migration (run that first). Deliberately NOT re-declared here: if the
+-- column isn't there, creating this function fails loudly ("column
+-- p.photo_url does not exist") instead of silently returning no photos.
+-- ----------------------------------------------------------------------------
+create or replace function public.get_order_rider(p_order_id uuid)
+returns table (full_name text, photo_url text)
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select p.full_name, p.photo_url
+  from public.delivery_requests d
+  join public.orders o on o.id = d.order_id
+  join public.profiles p on p.id = d.rider_id
+  where d.order_id = p_order_id
+    and o.customer_id = auth.uid()
+    and d.status in ('accepted', 'completed')
+  order by (d.status = 'completed') desc, d.created_at desc
+  limit 1;
+$$;
+
+revoke all on function public.get_order_rider(uuid) from public, anon;
+grant execute on function public.get_order_rider(uuid) to authenticated;
+
 
 -- ============================================================================
 -- KOPI BOY 2.0 — Customer notifications (in-app inbox + live toast)

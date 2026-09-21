@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { OrderRealtimeRefresher } from "@/components/OrderRealtimeRefresher";
 import { CancelOrderButton } from "@/components/CancelOrderButton";
 import { OrderProgress, type ProgressPosition } from "@/components/OrderProgress";
+import { RiderCard, type RiderInfo } from "@/components/RiderCard";
 
 export interface OrderRow {
   id: string;
@@ -181,6 +182,20 @@ export default async function OrderConfirmationPage({
   const stageTimestamp = formatTimestamp(stage.at);
   const header = getHeader(order.order_status, kitchen?.business_name ?? "The kitchen");
 
+  // Rider name + photo, once a rider has accepted (or finished) the delivery.
+  // profiles RLS hides other users' rows from customers, so this goes through
+  // the get_order_rider() SECURITY DEFINER function (docs/supabase-schema.sql
+  // 20a), which returns name + photo only and only for this customer's own
+  // order. If the function isn't installed yet the call just errors -> no
+  // rider card, and the rest of the page is unaffected.
+  let rider: RiderInfo | null = null;
+  if (activeDelivery && !header.failed) {
+    const { data } = await supabase.rpc("get_order_rider", { p_order_id: id });
+    // A set-returning function comes back as an array (supabase-js's untyped
+    // rpc() doesn't know that, hence the cast).
+    rider = (data as RiderInfo[] | null)?.[0] ?? null;
+  }
+
   const isSettled =
     order.order_status === "cancelled" || order.order_status === "rejected" || activeDelivery?.status === "completed";
 
@@ -215,6 +230,7 @@ export default async function OrderConfirmationPage({
               {stageTimestamp}
             </p>
           )}
+          {rider && <RiderCard rider={rider} />}
           {/* A cancelled/rejected order will never be accepted or paid for, so
               "pay via PayNow once accepted" would be wrong — hide the line. */}
           {!header.failed && (
