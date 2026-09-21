@@ -174,6 +174,9 @@ describe("/orders/[id] progress bar — every state, through the real page", () 
         expect(icon.style.background).toBe("var(--kb-danger)");
         expect(within(container).queryByText("Order placed!")).toBeNull();
         expect(within(container).queryByText(/has received your order/)).toBeNull();
+        // Never tell a dead order's customer to pay once it's accepted.
+        expect(within(container).queryByText(/Payment/)).toBeNull();
+        expect(within(container).queryByText(/PayNow/)).toBeNull();
         return;
       }
 
@@ -181,6 +184,7 @@ describe("/orders/[id] progress bar — every state, through the real page", () 
       expect(heading).toHaveTextContent("Order placed!");
       expect(within(container).getByText("Aunty May has received your order.")).toBeInTheDocument();
       expect(icon).toHaveAttribute("data-failed", "false");
+      expect(within(container).getByText("Payment pending — pay the cook via PayNow once accepted")).toBeInTheDocument();
       expect(icon.style.background).toBe("var(--kb-green-deep)");
       expect(bar).not.toBeNull();
       const items = Array.from(bar!.querySelectorAll("li"));

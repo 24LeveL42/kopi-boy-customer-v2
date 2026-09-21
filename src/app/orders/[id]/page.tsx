@@ -215,9 +215,13 @@ export default async function OrderConfirmationPage({
               {stageTimestamp}
             </p>
           )}
-          <p className="mt-1.5 text-xs" style={{ color: "var(--kb-ink-soft)" }}>
-            {getPaymentMessage(order.payment_status, kitchen?.paynow_type ?? null, kitchen?.paynow_value ?? null)}
-          </p>
+          {/* A cancelled/rejected order will never be accepted or paid for, so
+              "pay via PayNow once accepted" would be wrong — hide the line. */}
+          {!header.failed && (
+            <p className="mt-1.5 text-xs" style={{ color: "var(--kb-ink-soft)" }}>
+              {getPaymentMessage(order.payment_status, kitchen?.paynow_type ?? null, kitchen?.paynow_value ?? null)}
+            </p>
+          )}
 
           {order.order_status === "placed" && <CancelOrderButton orderId={order.id} />}
 
