@@ -757,41 +757,25 @@ create policy "Customers can read delivery requests for their own orders"
   );
 
 -- ----------------------------------------------------------------------------
--- 20a. RIDER INFO FOR THE CUSTOMER'S ORDER (name + photo only)
--- Once a rider accepts a delivery, the order page shows "Your rider: {name}"
--- with their photo. profiles RLS only lets a user read their own row, and RLS
--- is row-level — a "customers can read riders' profiles" policy would also
--- hand every customer the rider's phone / contact_number. So instead of a
--- policy, this SECURITY DEFINER function returns exactly two columns, and only
--- for: the caller's own order, whose delivery is accepted or completed (a
--- released / open / cancelled request reveals nobody — same rule as the
--- app's pickActiveDelivery: completed wins, else accepted).
+-- 20a. RIDER INFO FOR THE CUSTOMER'S ORDER — defined in the Partner app's schema
+-- The order page shows "Your rider: {name}" + photo by calling
+-- public.get_order_rider(p_order_id uuid), which is defined ONCE, in the
+-- Partner app's docs/supabase-schema.sql (section 24, together with
+-- profiles.photo_url and the rider-photos bucket it depends on). It is
+-- deliberately NOT redefined here: two `create or replace`s of one signature
+-- silently overwrite each other, whichever script ran last.
 --
--- DEPENDS ON profiles.photo_url, added by the Partner app's rider-photo
--- migration (run that first). Deliberately NOT re-declared here: if the
--- column isn't there, creating this function fails loudly ("column
--- p.photo_url does not exist") instead of silently returning no photos.
+-- Contract this app relies on (keep the Partner's definition to it):
+--   returns table (full_name text, photo_url text) — nothing else (profiles
+--   RLS is own-row only, so this SECURITY DEFINER function is the only path,
+--   and it must not expose phone / contact details);
+--   only for the caller's own order, when its delivery_request is 'accepted'
+--   or 'completed' (completed preferred) — so the rider stays visible after
+--   delivery; open / cancelled / release_requested reveal nothing;
+--   EXECUTE for `authenticated` only.
+-- Until the Partner's script has run, the RPC errors and the order page just
+-- shows no rider card.
 -- ----------------------------------------------------------------------------
-create or replace function public.get_order_rider(p_order_id uuid)
-returns table (full_name text, photo_url text)
-language sql
-security definer
-stable
-set search_path = public
-as $$
-  select p.full_name, p.photo_url
-  from public.delivery_requests d
-  join public.orders o on o.id = d.order_id
-  join public.profiles p on p.id = d.rider_id
-  where d.order_id = p_order_id
-    and o.customer_id = auth.uid()
-    and d.status in ('accepted', 'completed')
-  order by (d.status = 'completed') desc, d.created_at desc
-  limit 1;
-$$;
-
-revoke all on function public.get_order_rider(uuid) from public, anon;
-grant execute on function public.get_order_rider(uuid) to authenticated;
 
 
 -- ============================================================================

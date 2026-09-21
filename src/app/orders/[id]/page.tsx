@@ -184,10 +184,11 @@ export default async function OrderConfirmationPage({
 
   // Rider name + photo, once a rider has accepted (or finished) the delivery.
   // profiles RLS hides other users' rows from customers, so this goes through
-  // the get_order_rider() SECURITY DEFINER function (docs/supabase-schema.sql
-  // 20a), which returns name + photo only and only for this customer's own
-  // order. If the function isn't installed yet the call just errors -> no
-  // rider card, and the rest of the page is unaffected.
+  // the get_order_rider() SECURITY DEFINER function, which the Partner app's
+  // schema owns (its docs/supabase-schema.sql section 24; contract noted in
+  // this repo's schema 20a). It returns name + photo only, only for this
+  // customer's own order. If it isn't installed yet the call just errors ->
+  // no rider card, and the rest of the page is unaffected.
   let rider: RiderInfo | null = null;
   if (activeDelivery && !header.failed) {
     const { data } = await supabase.rpc("get_order_rider", { p_order_id: id });
