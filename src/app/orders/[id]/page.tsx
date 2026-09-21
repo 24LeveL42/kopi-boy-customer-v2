@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { OrderRealtimeRefresher } from "@/components/OrderRealtimeRefresher";
 import { CancelOrderButton } from "@/components/CancelOrderButton";
+import { OrderProgress, type ProgressPosition } from "@/components/OrderProgress";
 
 export interface OrderRow {
   id: string;
@@ -33,6 +34,8 @@ interface Stage {
   message: string;
   at: string | null;
   tone: "warning" | "success" | "danger";
+  /** Place on the progress bar (see ProgressPosition); null = cancelled/rejected. */
+  position: ProgressPosition;
 }
 
 /**
@@ -58,28 +61,46 @@ export function pickActiveDelivery(deliveries: DeliveryRequestRow[]): DeliveryRe
  */
 export function getStage(order: OrderRow, activeDelivery: DeliveryRequestRow | null): Stage {
   if (order.order_status === "cancelled") {
-    return { message: "Order was cancelled", at: order.decided_at, tone: "danger" };
+    return { message: "Order was cancelled", at: order.decided_at, tone: "danger", position: null };
   }
   if (order.order_status === "rejected") {
-    return { message: "Order was rejected", at: order.decided_at, tone: "danger" };
+    return { message: "Order was rejected", at: order.decided_at, tone: "danger", position: null };
   }
   if (activeDelivery?.status === "completed") {
-    return { message: "Delivered", at: activeDelivery.completed_at, tone: "success" };
+    return { message: "Delivered", at: activeDelivery.completed_at, tone: "success", position: 3 };
   }
   if (activeDelivery?.status === "accepted") {
     return {
       message: "A rider has been assigned and is on the way to pick up your order",
       at: activeDelivery.accepted_at,
       tone: "success",
+      position: 2,
     };
   }
   if (order.preparation_status === "ready") {
-    return { message: "Ready — looking for a rider", at: order.ready_at, tone: "success" };
+    // 1.5: Preparing is finished, the rider stage isn't reached yet.
+    return { message: "Ready — looking for a rider", at: order.ready_at, tone: "success", position: 1.5 };
   }
   if (order.order_status === "accepted") {
-    return { message: "Order confirmed — cook is preparing your food", at: order.decided_at, tone: "warning" };
+    return { message: "Order confirmed — cook is preparing your food", at: order.decided_at, tone: "warning", position: 1 };
   }
-  return { message: "Waiting for kitchen to accept", at: order.created_at, tone: "warning" };
+  return { message: "Waiting for kitchen to accept", at: order.created_at, tone: "warning", position: -1 };
+}
+
+/**
+ * Card header for the order's final state. Only active or successfully
+ * completed orders get the green "Order placed!" check — a cancelled or
+ * rejected order leads with a red X and says so, instead of celebrating an
+ * order that will never be made.
+ */
+export function getHeader(orderStatus: string, kitchenName: string): { title: string; subtitle: string; failed: boolean } {
+  if (orderStatus === "cancelled") {
+    return { title: "Order cancelled", subtitle: "The kitchen won't prepare this order.", failed: true };
+  }
+  if (orderStatus === "rejected") {
+    return { title: "Order declined", subtitle: `${kitchenName} couldn't take this order.`, failed: true };
+  }
+  return { title: "Order placed!", subtitle: `${kitchenName} has received your order.`, failed: false };
 }
 
 function formatTimestamp(iso: string | null): string | null {
@@ -158,6 +179,7 @@ export default async function OrderConfirmationPage({
   const activeDelivery = pickActiveDelivery(deliveries ?? []);
   const stage = getStage(order, activeDelivery);
   const stageTimestamp = formatTimestamp(stage.at);
+  const header = getHeader(order.order_status, kitchen?.business_name ?? "The kitchen");
 
   const isSettled =
     order.order_status === "cancelled" || order.order_status === "rejected" || activeDelivery?.status === "completed";
@@ -168,15 +190,19 @@ export default async function OrderConfirmationPage({
       <div className="mx-auto max-w-sm">
         <div className="rounded-2xl bg-white p-6 text-center shadow-lg" style={{ color: "var(--kb-ink)" }}>
           <div
+            data-testid="order-header-icon"
+            data-failed={header.failed}
             className="mx-auto flex h-14 w-14 items-center justify-center rounded-full"
-            style={{ background: "var(--kb-green-deep)" }}
+            style={{ background: header.failed ? "var(--kb-danger)" : "var(--kb-green-deep)" }}
           >
-            <CheckIcon />
+            {header.failed ? <CrossIcon /> : <CheckIcon />}
           </div>
-          <h1 className="mt-4 font-display text-xl font-bold">Order placed!</h1>
+          <h1 className="mt-4 font-display text-xl font-bold">{header.title}</h1>
           <p className="mt-1 text-sm" style={{ color: "var(--kb-ink-soft)" }}>
-            {kitchen?.business_name ?? "The kitchen"} has received your order.
+            {header.subtitle}
           </p>
+
+          <OrderProgress position={stage.position} />
 
           <p
             className="mt-4 inline-block rounded-full px-3 py-1 text-xs font-semibold"
@@ -224,6 +250,15 @@ export default async function OrderConfirmationPage({
         </div>
       </div>
     </div>
+  );
+}
+
+function CrossIcon() {
+  return (
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <line x1="6" y1="6" x2="18" y2="18" />
+      <line x1="18" y1="6" x2="6" y2="18" />
+    </svg>
   );
 }
 

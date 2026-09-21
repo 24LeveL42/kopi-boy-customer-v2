@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getStage, pickActiveDelivery, type OrderRow, type DeliveryRequestRow } from "@/app/orders/[id]/page";
+import { getHeader, getStage, pickActiveDelivery, type OrderRow, type DeliveryRequestRow } from "@/app/orders/[id]/page";
 
 function order(overrides: Partial<OrderRow> = {}): OrderRow {
   return {
@@ -74,6 +74,51 @@ describe("getStage", () => {
     expect(stage.message).toBe("Order was rejected");
     expect(stage.at).toBe(decidedAt);
     expect(stage.tone).toBe("danger");
+  });
+});
+
+describe("getStage progress-bar position", () => {
+  const accepted = { order_status: "accepted", decided_at: "2026-01-01T00:05:00.000Z" } as const;
+
+  it("maps each stage to its place on the bar; null for cancelled/rejected", () => {
+    expect(getStage(order(), null).position).toBe(-1);
+    expect(getStage(order({ ...accepted }), null).position).toBe(1);
+    expect(getStage(order({ ...accepted, preparation_status: "preparing" }), null).position).toBe(1);
+    expect(getStage(order({ ...accepted, preparation_status: "ready" }), null).position).toBe(1.5);
+    const riderAccepted: DeliveryRequestRow = { status: "accepted", accepted_at: "t", completed_at: null };
+    expect(getStage(order({ ...accepted, preparation_status: "ready" }), riderAccepted).position).toBe(2);
+    const riderDone: DeliveryRequestRow = { status: "completed", accepted_at: "t", completed_at: "t2" };
+    expect(getStage(order({ ...accepted, preparation_status: "ready" }), riderDone).position).toBe(3);
+    expect(getStage(order({ order_status: "cancelled" }), null).position).toBeNull();
+    expect(getStage(order({ order_status: "rejected" }), null).position).toBeNull();
+  });
+});
+
+describe("getHeader", () => {
+  it("keeps the green 'Order placed!' header for active and completed orders", () => {
+    for (const status of ["placed", "accepted"]) {
+      expect(getHeader(status, "Aunty May")).toEqual({
+        title: "Order placed!",
+        subtitle: "Aunty May has received your order.",
+        failed: false,
+      });
+    }
+  });
+
+  it("says 'Order cancelled' for a cancelled order", () => {
+    expect(getHeader("cancelled", "Aunty May")).toEqual({
+      title: "Order cancelled",
+      subtitle: "The kitchen won't prepare this order.",
+      failed: true,
+    });
+  });
+
+  it("says 'Order declined' for a rejected order", () => {
+    expect(getHeader("rejected", "Aunty May")).toEqual({
+      title: "Order declined",
+      subtitle: "Aunty May couldn't take this order.",
+      failed: true,
+    });
   });
 });
 
