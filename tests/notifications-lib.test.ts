@@ -46,8 +46,13 @@ describe("countUnread / notificationHref", () => {
   });
 
   it("links to the order, or nowhere when there is none", () => {
-    expect(notificationHref({ order_id: "abc" })).toBe("/orders/abc");
-    expect(notificationHref({ order_id: null })).toBeNull();
+    expect(notificationHref({ url: "/orders/abc" })).toBe("/orders/abc");
+    // The shared table's default url for order-less rows means "nowhere".
+    expect(notificationHref({ url: "/" })).toBeNull();
+    expect(notificationHref({ url: "" })).toBeNull();
+    // Only same-site paths are ever followed.
+    expect(notificationHref({ url: "https://evil.example.com/x" })).toBeNull();
+    expect(notificationHref({ url: "//evil.example.com/x" })).toBeNull();
   });
 });
 

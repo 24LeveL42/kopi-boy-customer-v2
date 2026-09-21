@@ -132,7 +132,7 @@ describe("customer notifications — live via Realtime", () => {
   });
 
   it("tapping a notification marks it read (optimistically) and persists read_at for that row only", async () => {
-    const fake = createFakeSupabase({ userId: "user-1", rows: [makeNotification({ id: "a", order_id: "order-9" })] });
+    const fake = createFakeSupabase({ userId: "user-1", rows: [makeNotification({ id: "a", url: "/orders/order-9", ref_id: "order-9" })] });
     await mountApp(fake);
     await waitFor(() => expect(badge()).toHaveTextContent("1"));
 
@@ -216,7 +216,7 @@ describe("customer notifications — live via Realtime", () => {
     const channel = await mountApp(fake);
 
     act(() => {
-      channel.emit("INSERT", "notifications", makeNotification({ id: "t1", order_id: "order-42", title: "Rider on the way" }));
+      channel.emit("INSERT", "notifications", makeNotification({ id: "t1", url: "/orders/order-42", ref_id: "order-42", title: "Rider on the way" }));
     });
     fireEvent.click(within(screen.getByTestId("notification-toast")).getByText("Rider on the way"));
 

@@ -3,6 +3,10 @@
  * `notifications` table (docs/supabase-schema.sql, sections 21-24), written
  * only by database triggers when an order/delivery changes; the app only
  * reads them (live, via Supabase Realtime) and flips `read_at`.
+ *
+ * The table is SHARED with the Partner app (its docs/supabase-notifications.sql
+ * defines the same columns), so a row's shape is the Partner's: `ref_id` is the
+ * thing it's about and `url` is where a tap goes — there is no `order_id`.
  */
 
 export type NotificationType =
@@ -15,13 +19,20 @@ export type NotificationType =
   | "order_delivered"
   | "order_cancelled";
 
+export type NotificationCategory = "orders" | "deliveries" | "pickups" | "account";
+
 export interface NotificationRow {
   id: string;
   user_id: string;
-  order_id: string | null;
-  type: NotificationType;
+  category: NotificationCategory;
+  /** A NotificationType for customer events; free text for anything else the shared table carries. */
+  type: NotificationType | (string & {});
   title: string;
-  body: string;
+  body: string | null;
+  /** In-app path a tap goes to ("/orders/<id>"), or "/" when there's nowhere specific. */
+  url: string;
+  /** The order this notification is about, when it has one. */
+  ref_id: string | null;
   created_at: string;
   read_at: string | null;
 }
@@ -48,9 +59,14 @@ export function countUnread(notifications: NotificationRow[]): number {
   return notifications.reduce((n, item) => (item.read_at ? n : n + 1), 0);
 }
 
-/** Where tapping a notification goes: its order, or nowhere for order-less ones. */
-export function notificationHref(n: Pick<NotificationRow, "order_id">): string | null {
-  return n.order_id ? `/orders/${n.order_id}` : null;
+/**
+ * Where tapping a notification goes: its `url`, or nowhere for the "/"
+ * default that order-less ones carry. Only same-site paths are followed.
+ */
+export function notificationHref(n: Pick<NotificationRow, "url">): string | null {
+  const url = n.url;
+  if (!url || url === "/" || !url.startsWith("/") || url.startsWith("//")) return null;
+  return url;
 }
 
 /** "Just now" / "5 min ago" / "3 h ago" / "2 d ago" / "5 Sep". */

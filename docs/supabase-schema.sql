@@ -812,23 +812,32 @@ grant execute on function public.get_order_rider(uuid) to authenticated;
 -- written ONLY by the trigger functions below (SECURITY DEFINER) — the
 -- `authenticated` role gets no INSERT/DELETE at all, so a customer can't
 -- forge or wipe notifications, and can only ever flip read_at on their own.
+--
+-- SHARED TABLE: the Partner app's docs/supabase-notifications.sql creates
+-- this same public.notifications for cooks / riders / pickers. The definition
+-- below is deliberately IDENTICAL to theirs (category, free-text type, url,
+-- ref_id — there is no order_id column), so it doesn't matter which script
+-- runs first: the second `create table if not exists` is a no-op and both
+-- apps' triggers write into the one table. For a customer notification,
+-- ref_id = the order and url = '/orders/<id>' (where a tap goes).
 -- ----------------------------------------------------------------------------
 create table if not exists public.notifications (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
-  order_id uuid references public.orders(id) on delete cascade,
-  type text not null check (type in (
-    'order_placed', 'order_accepted', 'order_rejected', 'payment_received',
-    'order_ready', 'rider_assigned', 'order_delivered', 'order_cancelled'
-  )),
+  category text not null check (category in ('orders', 'deliveries', 'pickups', 'account')),
+  type text not null,
   title text not null,
-  body text not null,
-  created_at timestamptz not null default now(),
-  read_at timestamptz
+  body text,
+  url text not null default '/',
+  ref_id uuid, -- the order / request the notification is about (used to dedupe reminders)
+  read_at timestamptz,
+  created_at timestamptz not null default now()
 );
 
 create index if not exists notifications_user_created_idx
   on public.notifications (user_id, created_at desc);
+create index if not exists notifications_type_ref_idx
+  on public.notifications (type, ref_id);
 
 alter table public.notifications enable row level security;
 
@@ -885,6 +894,13 @@ end $$;
 -- /rpc/create_customer_notification and anyone could forge notifications.
 -- Trigger functions run as the table owner, which keeps EXECUTE.
 -- ----------------------------------------------------------------------------
+--
+-- Maps a customer event onto the shared table's real columns: category is
+-- 'deliveries' for the rider events and 'orders' for everything else, ref_id
+-- is the order, url is its page. Like every trigger in the Partner's
+-- notifications script, a failure here is downgraded to a WARNING: a
+-- notification problem must never roll back the real write (the customer's
+-- order / the cook's or rider's status change) that fired the trigger.
 create or replace function public.create_customer_notification(
   p_user_id uuid,
   p_order_id uuid,
@@ -892,12 +908,24 @@ create or replace function public.create_customer_notification(
   p_title text,
   p_body text
 ) returns void
-language sql
+language plpgsql
 security definer
 set search_path = public
 as $$
-  insert into public.notifications (user_id, order_id, type, title, body)
-  values (p_user_id, p_order_id, p_type, p_title, p_body);
+begin
+  insert into public.notifications (user_id, category, type, title, body, url, ref_id)
+  values (
+    p_user_id,
+    case when p_type in ('rider_assigned', 'order_delivered') then 'deliveries' else 'orders' end,
+    p_type,
+    p_title,
+    p_body,
+    case when p_order_id is null then '/' else '/orders/' || p_order_id end,
+    p_order_id
+  );
+exception when others then
+  raise warning 'create_customer_notification failed: %', sqlerrm;
+end;
 $$;
 
 revoke all on function public.create_customer_notification(uuid, uuid, text, text, text)

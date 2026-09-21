@@ -14,25 +14,45 @@ the tab is closed.
 The Partner app (cook/rider) changes order state, so notifications are created
 by **database triggers**, not by this app — the Partner app needs no changes.
 
-| Event | Fires when | Type |
-|---|---|---|
-| Order sent | `orders` row inserted | `order_placed` |
-| Order accepted (+ PayNow hint if unpaid) | `order_status` → `accepted` | `order_accepted` |
-| Order rejected | `order_status` → `rejected` | `order_rejected` |
-| Payment received | `payment_status` → `paid` | `payment_received` |
-| Food is ready | `preparation_status` → `ready` | `order_ready` |
-| Rider on the way | `delivery_requests.status` → `accepted` | `rider_assigned` |
-| Order delivered | `delivery_requests.status` → `completed` | `order_delivered` |
-| Order cancelled | `order_status` → `cancelled` | `order_cancelled` |
+| Event | Fires when | Type | Category |
+|---|---|---|---|
+| Order sent | `orders` row inserted | `order_placed` | `orders` |
+| Order accepted (+ PayNow hint if unpaid) | `order_status` → `accepted` | `order_accepted` | `orders` |
+| Order rejected | `order_status` → `rejected` | `order_rejected` | `orders` |
+| Payment received | `payment_status` → `paid` | `payment_received` | `orders` |
+| Food is ready | `preparation_status` → `ready` | `order_ready` | `orders` |
+| Rider on the way | `delivery_requests.status` → `accepted` | `rider_assigned` | `deliveries` |
+| Order delivered | `delivery_requests.status` → `completed` | `order_delivered` | `deliveries` |
+| Order cancelled | `order_status` → `cancelled` | `order_cancelled` | `orders` |
 
 Every branch is guarded by `IS DISTINCT FROM`, so re-saving an unchanged value
 never re-notifies.
+
+## The table is shared with the Partner app
+
+`public.notifications` is **one table used by both apps**. The Partner app's
+`docs/supabase-notifications.sql` creates it first for cooks/riders/pickers, and
+the columns are theirs: `category`, free-text `type`, `title`, `body`, `url`,
+`ref_id`, `read_at`, `created_at` — **there is no `order_id` column**. For a
+customer notification `ref_id` is the order and `url` is `/orders/<id>` (a tap
+follows `url`; `"/"` means nowhere). The definition in this repo's schema is
+deliberately identical, so it doesn't matter which script runs first.
+
+Because customer and Partner triggers both fire on `orders` and
+`delivery_requests`, a notification failure must never roll back the real
+write: `create_customer_notification` catches any error and downgrades it to a
+`WARNING` (same rule as the Partner's triggers). If notifications ever stop
+appearing, check the Postgres logs for `create_customer_notification failed`.
+
+The Partner's push webhook fires on every insert into this table, including
+customer rows; customers have no push subscriptions, so that is a no-op.
 
 ## Setup (once)
 
 Run the last section of `docs/supabase-schema.sql` ("Customer notifications",
 §21-24) in the Supabase SQL Editor. It's idempotent. It creates the
-`notifications` table with RLS + minimal grants, adds `notifications`,
+shared `notifications` table (a no-op if the Partner's script already made it)
+with RLS + minimal grants, adds `notifications`,
 `orders` and `delivery_requests` to the `supabase_realtime` publication, and
 installs the triggers.
 

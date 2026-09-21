@@ -56,10 +56,12 @@ export function makeNotification(overrides: Partial<NotificationRow> = {}): Noti
   return {
     id: "n-1",
     user_id: "user-1",
-    order_id: "order-1",
+    category: "orders",
     type: "order_accepted",
     title: "Order accepted",
     body: "Mama Lim Kitchen accepted your order.",
+    url: "/orders/order-1",
+    ref_id: "order-1",
     created_at: "2026-09-20T10:00:00.000Z",
     read_at: null,
     ...overrides,
