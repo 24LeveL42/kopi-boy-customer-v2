@@ -5,6 +5,7 @@ import { OrderRealtimeRefresher } from "@/components/OrderRealtimeRefresher";
 import { CancelOrderButton } from "@/components/CancelOrderButton";
 import { OrderProgress, type ProgressPosition } from "@/components/OrderProgress";
 import { RiderCard, type RiderInfo } from "@/components/RiderCard";
+import { OrderChat } from "@/components/OrderChat";
 
 export interface OrderRow {
   id: string;
@@ -158,7 +159,10 @@ export default async function OrderConfirmationPage({
   // `*` just omits it, so the page still works (minus that one timestamp)
   // until the migration is applied. Same pattern CookOrdersPanel already
   // uses in the Partner app.
-  const { data: order } = await supabase.from("orders").select("*").eq("id", id).maybeSingle<OrderRow>();
+  const [{ data: order }, { data: { user } }] = await Promise.all([
+    supabase.from("orders").select("*").eq("id", id).maybeSingle<OrderRow>(),
+    supabase.auth.getUser(),
+  ]);
 
   if (!order) notFound();
 
@@ -200,6 +204,12 @@ export default async function OrderConfirmationPage({
   const isSettled =
     order.order_status === "cancelled" || order.order_status === "rejected" || activeDelivery?.status === "completed";
 
+  // Same window the messages table's order_chat_participant() RLS check
+  // enforces (accepted delivery, order not cancelled/rejected) — see
+  // docs/messages.md. Mirroring it here just controls whether the chat box
+  // renders at all; RLS is what actually protects the rows.
+  const chatVisible = Boolean(user) && activeDelivery?.status === "accepted" && !header.failed;
+
   return (
     <div className="min-h-screen px-4 py-8 sm:px-6" style={{ background: "var(--kb-navy)", color: "var(--kb-on-navy)" }}>
       <OrderRealtimeRefresher orderId={order.id} isSettled={isSettled} />
@@ -232,6 +242,7 @@ export default async function OrderConfirmationPage({
             </p>
           )}
           {rider && <RiderCard rider={rider} />}
+          {chatVisible && <OrderChat orderId={order.id} currentUserId={user!.id} riderName={rider?.full_name ?? null} />}
           {/* A cancelled/rejected order will never be accepted or paid for, so
               "pay via PayNow once accepted" would be wrong — hide the line. */}
           {!header.failed && (

@@ -13,6 +13,9 @@ const db = vi.hoisted(() => ({
 // to the table's canned data, so the page runs its real code path.
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
+    auth: {
+      getUser: async () => ({ data: { user: { id: "customer-1" } } }),
+    },
     // Rider lookup (covered in order-rider.test.tsx) — irrelevant to the bar.
     rpc: () => Promise.resolve({ data: [{ full_name: "Ahmad", photo_url: null }], error: null }),
     from(table: string) {
@@ -32,6 +35,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("@/components/OrderRealtimeRefresher", () => ({ OrderRealtimeRefresher: () => null }));
 vi.mock("@/components/CancelOrderButton", () => ({ CancelOrderButton: () => null }));
+vi.mock("@/components/OrderChat", () => ({ OrderChat: () => null }));
 vi.mock("next/navigation", () => ({ notFound: () => { throw new Error("notFound"); } }));
 
 function order(overrides: Partial<OrderRow> = {}): OrderRow {

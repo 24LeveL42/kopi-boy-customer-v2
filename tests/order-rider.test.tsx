@@ -15,6 +15,9 @@ const db = vi.hoisted(() => ({
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
+    auth: {
+      getUser: async () => ({ data: { user: { id: "customer-1" } } }),
+    },
     rpc(fn: string, args: unknown) {
       db.rpcCalls.push({ fn, args });
       return Promise.resolve(db.rpcResult);
@@ -36,6 +39,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("@/components/OrderRealtimeRefresher", () => ({ OrderRealtimeRefresher: () => null }));
 vi.mock("@/components/CancelOrderButton", () => ({ CancelOrderButton: () => null }));
+vi.mock("@/components/OrderChat", () => ({ OrderChat: () => null }));
 vi.mock("next/navigation", () => ({ notFound: () => { throw new Error("notFound"); } }));
 
 function order(overrides: Partial<OrderRow> = {}): OrderRow {
