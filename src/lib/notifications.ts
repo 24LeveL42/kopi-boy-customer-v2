@@ -81,5 +81,5 @@ export function formatRelativeTime(iso: string, now: number = Date.now()): strin
   if (hours < 24) return `${hours} h ago`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days} d ago`;
-  return new Date(then).toLocaleDateString("en-SG", { day: "numeric", month: "short" });
+  return new Date(then).toLocaleDateString("en-SG", { timeZone: "Asia/Singapore", day: "numeric", month: "short" });
 }

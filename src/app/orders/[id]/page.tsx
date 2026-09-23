@@ -107,7 +107,9 @@ export function getHeader(orderStatus: string, kitchenName: string): { title: st
 
 function formatTimestamp(iso: string | null): string | null {
   if (!iso) return null;
+  // Pin the zone: this renders on the server, whose local zone is UTC in production.
   return new Date(iso).toLocaleString("en-SG", {
+    timeZone: "Asia/Singapore",
     day: "numeric",
     month: "short",
     hour: "numeric",

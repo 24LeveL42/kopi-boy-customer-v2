@@ -72,6 +72,11 @@ describe("formatRelativeTime", () => {
     expect(formatRelativeTime(new Date(now + 10_000).toISOString(), now)).toBe("Just now");
   });
 
+  it("dates older items in Singapore time, not UTC", () => {
+    // 20:11 UTC on 1 Sep is 04:11 SGT on 2 Sep.
+    expect(formatRelativeTime("2026-09-01T20:11:00.000Z", now)).toMatch(/^2 Sept?$/);
+  });
+
   it("returns empty string for garbage", () => {
     expect(formatRelativeTime("not-a-date", now)).toBe("");
   });
