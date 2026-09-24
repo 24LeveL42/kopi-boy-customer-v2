@@ -6,6 +6,7 @@ import { CancelOrderButton } from "@/components/CancelOrderButton";
 import { OrderProgress, type ProgressPosition } from "@/components/OrderProgress";
 import { RiderCard, type RiderInfo } from "@/components/RiderCard";
 import { OrderChat } from "@/components/OrderChat";
+import { SupportChatToggle } from "@/components/SupportChat";
 
 export interface OrderRow {
   id: string;
@@ -32,7 +33,7 @@ export interface DeliveryRequestRow {
   completed_at: string | null;
 }
 
-interface Stage {
+export interface Stage {
   message: string;
   at: string | null;
   tone: "warning" | "success" | "danger";
@@ -105,7 +106,7 @@ export function getHeader(orderStatus: string, kitchenName: string): { title: st
   return { title: "Order placed!", subtitle: `${kitchenName} has received your order.`, failed: false };
 }
 
-function formatTimestamp(iso: string | null): string | null {
+export function formatTimestamp(iso: string | null): string | null {
   if (!iso) return null;
   // Pin the zone: this renders on the server, whose local zone is UTC in production.
   return new Date(iso).toLocaleString("en-SG", {
@@ -117,7 +118,7 @@ function formatTimestamp(iso: string | null): string | null {
   });
 }
 
-const STAGE_STYLE: Record<Stage["tone"], { background: string; color: string }> = {
+export const STAGE_STYLE: Record<Stage["tone"], { background: string; color: string }> = {
   danger: { background: "rgba(239,68,68,0.12)", color: "var(--kb-danger)" },
   success: { background: "rgba(4,120,87,0.12)", color: "var(--kb-green-deep)" },
   warning: { background: "rgba(245,158,11,0.15)", color: "#92640A" },
@@ -168,7 +169,7 @@ export default async function OrderConfirmationPage({
 
   if (!order) notFound();
 
-  const [{ data: kitchen }, { data: items }, { data: deliveries }] = await Promise.all([
+  const [{ data: kitchen }, { data: items }, { data: deliveries }, { count: supportMessageCount }] = await Promise.all([
     supabase
       .from("kitchens")
       .select("business_name, paynow_type, paynow_value")
@@ -181,6 +182,11 @@ export default async function OrderConfirmationPage({
       .eq("order_id", id)
       .order("created_at", { ascending: false })
       .returns<DeliveryRequestRow[]>(),
+    // Only to decide whether the support chat starts open. If the
+    // complaint_messages migration (schema §25) hasn't run, this errors ->
+    // null -> "Report an issue" starts collapsed, same graceful degrade as
+    // the rider card.
+    supabase.from("complaint_messages").select("id", { count: "exact", head: true }).eq("order_id", id),
   ]);
 
   const activeDelivery = pickActiveDelivery(deliveries ?? []);
@@ -274,9 +280,13 @@ export default async function OrderConfirmationPage({
             <span>${order.subtotal.toFixed(2)}</span>
           </div>
 
+          {/* Unlike the rider chat there's no window: a complaint can be
+              raised at any stage and the thread stays as the record. */}
+          {user && <SupportChatToggle orderId={order.id} currentUserId={user.id} hasThread={(supportMessageCount ?? 0) > 0} />}
+
           <Link
             href="/"
-            className="mt-6 inline-block w-full rounded-xl py-2.5 text-sm font-semibold text-white"
+            className="mt-3 inline-block w-full rounded-xl py-2.5 text-sm font-semibold text-white"
             style={{ background: "linear-gradient(90deg, var(--kb-purple) 0%, var(--kb-green) 100%)" }}
           >
             Back to marketplace

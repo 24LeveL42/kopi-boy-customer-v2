@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { NotificationBell } from "./NotificationBell";
+import { CartButton } from "./CartButton";
 
 /**
- * Universal Back + Home buttons (and the notifications bell, once signed
- * in), rendered once in the root layout so every route gets them for free —
+ * Universal Back + Home buttons, the cart, and the notifications bell (once
+ * signed in), rendered once in the root layout so every route gets them for free —
  * matches the same top-of-shell placement the Partner app uses for its own
  * persistent nav.
  */
@@ -27,7 +28,10 @@ export function PageChrome() {
       <Link href="/" aria-label="Home" className="flex items-center justify-center rounded-full p-2" style={{ color: "var(--kb-on-navy)" }}>
         <HomeIcon />
       </Link>
-      <NotificationBell />
+      <div className="ml-auto flex items-center gap-1">
+        <NotificationBell />
+        <CartButton />
+      </div>
     </div>
   );
 }

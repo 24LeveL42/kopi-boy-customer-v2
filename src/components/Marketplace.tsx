@@ -11,7 +11,6 @@ import { CuisineFilter } from "./CuisineFilter";
 import { MerchantGrid } from "./MerchantGrid";
 import { TopBar } from "./TopBar";
 import { LogoCard } from "./LogoCard";
-import { CartButton } from "./CartButton";
 import { BottomNav } from "./BottomNav";
 
 export function filterMerchants(
@@ -89,7 +88,6 @@ export function Marketplace({ merchants }: { merchants: Merchant[] }) {
         )}
       </main>
 
-      <CartButton />
       <BottomNav />
     </div>
   );

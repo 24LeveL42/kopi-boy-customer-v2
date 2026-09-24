@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { CartButton } from "@/components/CartButton";
 import { MenuItemRow } from "@/components/MenuItemRow";
 
 /**
@@ -65,8 +64,6 @@ export default async function MerchantPage({
           )}
         </div>
       </div>
-
-      <CartButton />
     </div>
   );
 }

@@ -29,8 +29,8 @@ export const MESSAGE_FETCH_LIMIT = 200;
  * a row realtime already delivered), so union by id and sort oldest-first —
  * a chat reads top-to-bottom, unlike the notifications inbox.
  */
-export function mergeMessages(existing: MessageRow[], incoming: MessageRow[]): MessageRow[] {
-  const byId = new Map<string, MessageRow>();
+export function mergeMessages<T extends { id: string; created_at: string }>(existing: T[], incoming: T[]): T[] {
+  const byId = new Map<string, T>();
   for (const m of existing) byId.set(m.id, m);
   for (const m of incoming) byId.set(m.id, m);
   return [...byId.values()].sort((a, b) =>

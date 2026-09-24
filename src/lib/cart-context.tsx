@@ -9,6 +9,8 @@ interface CartContextValue {
   cart: Cart | null;
   addItem: (kitchenId: string, kitchenName: string, item: Omit<CartItem, "quantity">) => void;
   setQuantity: (menuItemId: string, quantity: number) => void;
+  /** Deletes a whole line in one go, whatever its quantity. */
+  removeItem: (menuItemId: string) => void;
   clearCart: () => void;
   itemCount: number;
   subtotal: number;
@@ -79,13 +81,15 @@ export function CartProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const removeItem = useCallback((menuItemId: string) => setQuantity(menuItemId, 0), [setQuantity]);
+
   const clearCart = useCallback(() => setCart(null), []);
 
   const itemCount = cart?.items.reduce((sum, i) => sum + i.quantity, 0) ?? 0;
   const subtotal = cart?.items.reduce((sum, i) => sum + i.price * i.quantity, 0) ?? 0;
 
   return (
-    <CartContext.Provider value={{ cart, addItem, setQuantity, clearCart, itemCount, subtotal }}>
+    <CartContext.Provider value={{ cart, addItem, setQuantity, removeItem, clearCart, itemCount, subtotal }}>
       {children}
     </CartContext.Provider>
   );

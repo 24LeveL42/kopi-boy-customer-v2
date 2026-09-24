@@ -1053,3 +1053,246 @@ drop trigger if exists notify_customer_on_delivery_change on public.delivery_req
 create trigger notify_customer_on_delivery_change
   after insert or update of status on public.delivery_requests
   for each row execute function public.notify_customer_on_delivery_change();
+
+
+-- ============================================================================
+-- KOPI BOY 2.0 — Customer <-> HQ support chat (complaints) + order history cap
+-- Run this ONCE, after every script above, in the same Supabase project's
+-- SQL Editor. Safe to re-run (idempotent). See docs/support-chat.md.
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- 25. COMPLAINT MESSAGES
+-- A free-form thread between an order's customer and HQ (any admin), tied to
+-- one order. Same shape as the Partner-owned public.messages (rider chat),
+-- plus an optional evidence photo — but a different "who" and no "until
+-- when": the thread never closes, it stays readable as the record of the
+-- complaint whatever state the order ends up in.
+--
+-- photo_path is a key in the PRIVATE complaint-photos bucket (section 26),
+-- not a URL: evidence photos are never publicly reachable, the app turns the
+-- path into a short-lived signed URL when it renders. The check pins the
+-- path under this order's own folder, so a message can't point at another
+-- order's evidence.
+-- ----------------------------------------------------------------------------
+create table if not exists public.complaint_messages (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null references public.orders(id) on delete cascade,
+  sender_id uuid not null references public.profiles(id) on delete cascade,
+  body text not null default '',
+  photo_path text,
+  created_at timestamptz not null default now(),
+  constraint complaint_messages_body_check
+    check (length(body) <= 2000 and (length(btrim(body)) > 0 or photo_path is not null)),
+  constraint complaint_messages_photo_path_check
+    check (photo_path is null or photo_path like order_id::text || '/%')
+);
+
+create index if not exists complaint_messages_order_created_idx
+  on public.complaint_messages (order_id, created_at);
+
+alter table public.complaint_messages enable row level security;
+
+-- Same start-from-zero grant as notifications: read + send only, no update
+-- or delete — a complaint thread is evidence and must be immutable.
+revoke all on public.complaint_messages from anon, authenticated;
+grant select, insert on public.complaint_messages to authenticated;
+
+-- SECURITY DEFINER for the same reason as order_chat_participant(): the
+-- check must not depend on the caller's own orders RLS, and has_role() reads
+-- profiles. No terminal-state condition, on purpose — see above.
+create or replace function public.complaint_thread_participant(p_order_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.has_role('admin')
+    or exists (select 1 from public.orders o where o.id = p_order_id and o.customer_id = auth.uid());
+$$;
+
+revoke all on function public.complaint_thread_participant(uuid) from public, anon;
+grant execute on function public.complaint_thread_participant(uuid) to authenticated;
+
+drop policy if exists "Customer and HQ can read the order's complaint thread" on public.complaint_messages;
+create policy "Customer and HQ can read the order's complaint thread"
+  on public.complaint_messages for select
+  using (public.complaint_thread_participant(order_id));
+
+drop policy if exists "Customer and HQ can post to the order's complaint thread" on public.complaint_messages;
+create policy "Customer and HQ can post to the order's complaint thread"
+  on public.complaint_messages for insert
+  with check (sender_id = auth.uid() and public.complaint_thread_participant(order_id));
+
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+    and not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'complaint_messages'
+    ) then
+    execute 'alter publication supabase_realtime add table public.complaint_messages';
+  end if;
+end $$;
+
+-- ----------------------------------------------------------------------------
+-- 26. COMPLAINT PHOTOS BUCKET (private)
+-- Object key: <order_id>/<uploader_id>/<random>.<ext>. Read and upload are
+-- allowed to exactly the people who can read/post the order's thread
+-- (complaint_thread_participant on the first folder); uploads must also sit
+-- in the uploader's own sub-folder. No update/delete policy: evidence is
+-- immutable. The regex guard keeps a non-uuid folder name from raising a
+-- cast error inside the policy (which would fail the whole query) — such a
+-- key is simply not allowed.
+-- ----------------------------------------------------------------------------
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('complaint-photos', 'complaint-photos', false, 5242880,
+        array['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'])
+on conflict (id) do update
+  set public = false,
+      file_size_limit = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "Complaint thread participants can view its photos" on storage.objects;
+create policy "Complaint thread participants can view its photos"
+  on storage.objects for select
+  to authenticated
+  using (
+    bucket_id = 'complaint-photos'
+    and case
+      when (storage.foldername(name))[1] ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        then public.complaint_thread_participant(((storage.foldername(name))[1])::uuid)
+      else false
+    end
+  );
+
+drop policy if exists "Complaint thread participants can upload photos" on storage.objects;
+create policy "Complaint thread participants can upload photos"
+  on storage.objects for insert
+  to authenticated
+  with check (
+    bucket_id = 'complaint-photos'
+    and (storage.foldername(name))[2] = auth.uid()::text
+    and case
+      when (storage.foldername(name))[1] ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        then public.complaint_thread_participant(((storage.foldername(name))[1])::uuid)
+      else false
+    end
+  );
+
+-- ----------------------------------------------------------------------------
+-- 27. ORDER HISTORY CAP — archive, never delete
+-- A customer's order-history LIST shows at most their 10 newest orders.
+-- Older ones are NOT deleted: an order row is shared with the cook (sales
+-- record), the rider (delivery_requests cascade off it), HQ (Boss app
+-- /orders) and the complaint thread above, all of which ON DELETE CASCADE
+-- would wipe. Instead customer_archived_at is stamped, and any customer-facing
+-- history list must filter on it:
+--   .from("orders").select(...).is("customer_archived_at", null)
+-- It is deliberately NOT an RLS rule (see section 28): the order still
+-- belongs to the customer, so a direct link to it — e.g. from an old
+-- notification — keeps working. Cook / rider / admin never look at it.
+--
+-- Mechanism: an AFTER INSERT trigger on orders — the moment a customer's
+-- 11th order lands, their oldest is archived. No pg_cron: nothing here is
+-- time-based, the count only ever changes on insert.
+--
+-- Only SETTLED orders are archived (cancelled, rejected, or delivered). An
+-- order still in flight is never dropped from the list of the person waiting
+-- on it; it's picked up by the next insert after it settles. So a customer
+-- with 11+ live orders at once can briefly see more than 10.
+-- ----------------------------------------------------------------------------
+alter table public.orders add column if not exists customer_archived_at timestamptz;
+
+create index if not exists orders_customer_created_idx
+  on public.orders (customer_id, created_at desc);
+
+create or replace function public.archive_old_customer_orders(p_customer_id uuid)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  update public.orders o
+  set customer_archived_at = now()
+  where o.customer_id = p_customer_id
+    and o.customer_archived_at is null
+    and o.id not in (
+      select k.id from public.orders k
+      where k.customer_id = p_customer_id
+      order by k.created_at desc, k.id desc
+      limit 10
+    )
+    and (
+      o.order_status in ('cancelled', 'rejected')
+      or exists (select 1 from public.delivery_requests d where d.order_id = o.id and d.status = 'completed')
+    );
+$$;
+
+revoke all on function public.archive_old_customer_orders(uuid) from public, anon, authenticated;
+
+create or replace function public.archive_old_orders_on_insert()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform public.archive_old_customer_orders(new.customer_id);
+  return null;
+exception when others then
+  -- Same rule as the notification triggers: housekeeping must never roll
+  -- back the customer's actual order.
+  raise warning 'archive_old_customer_orders failed: %', sqlerrm;
+  return null;
+end;
+$$;
+
+revoke all on function public.archive_old_orders_on_insert() from public, anon, authenticated;
+
+drop trigger if exists archive_old_orders_on_insert on public.orders;
+create trigger archive_old_orders_on_insert
+  after insert on public.orders
+  for each row execute function public.archive_old_orders_on_insert();
+
+-- Only the archive function may set/clear the column. `authenticated` has a
+-- table-wide UPDATE grant on orders (cook status changes, customer cancel),
+-- so without this a cook could drop an order from its customer's history, or
+-- a customer could un-archive one. The SECURITY DEFINER function above runs as
+-- the table owner, so current_user tells the two apart.
+create or replace function public.protect_customer_archived_at()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if current_user in ('anon', 'authenticated') then
+    new.customer_archived_at := old.customer_archived_at;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_customer_archived_at on public.orders;
+create trigger protect_customer_archived_at
+  before update of customer_archived_at on public.orders
+  for each row execute function public.protect_customer_archived_at();
+
+-- One-off backfill for customers who already have more than 10 orders.
+select public.archive_old_customer_orders(c.customer_id)
+from (select distinct customer_id from public.orders) c;
+
+-- ----------------------------------------------------------------------------
+-- 28. CUSTOMER ORDERS POLICY — archived orders stay readable
+-- Same policy as section 12, re-applied here on purpose: an earlier version
+-- of this section added `and customer_archived_at is null`, which made an
+-- archived order 404 when opened from an old notification. Archiving only
+-- trims the history list (section 27); a customer can always open their own
+-- order by direct link. Re-running this restores that on a database where the
+-- earlier version already ran.
+-- ----------------------------------------------------------------------------
+drop policy if exists "Customers can read their own orders" on public.orders;
+create policy "Customers can read their own orders"
+  on public.orders for select
+  using (auth.uid() = customer_id);

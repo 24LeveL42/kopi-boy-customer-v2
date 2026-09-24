@@ -10,7 +10,7 @@ import { haversineDistanceKm, estimateDeliveryFee } from "@/lib/distance";
 import { createClient } from "@/lib/supabase/client";
 
 export function CartView({ isSignedIn }: { isSignedIn: boolean }) {
-  const { cart, setQuantity, subtotal, clearCart } = useCart();
+  const { cart, setQuantity, removeItem, subtotal, clearCart } = useCart();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
@@ -84,10 +84,25 @@ export function CartView({ isSignedIn }: { isSignedIn: boolean }) {
   return (
     <div className="min-h-screen px-4 py-8 sm:px-6" style={{ background: "var(--kb-navy)", color: "var(--kb-on-navy)" }}>
       <div className="mx-auto max-w-md">
-        <h1 className="font-display text-xl font-bold">Your cart</h1>
-        <p className="mt-1 text-sm" style={{ color: "var(--kb-on-navy-soft)" }}>
-          {cart.kitchenName}
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="font-display text-xl font-bold">Your cart</h1>
+            <p className="mt-1 text-sm" style={{ color: "var(--kb-on-navy-soft)" }}>
+              {cart.kitchenName}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              // Confirmed, unlike the per-line remove: this throws away the whole order in one tap.
+              if (window.confirm("Remove everything from your cart?")) clearCart();
+            }}
+            className="shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold"
+            style={{ borderColor: "var(--kb-navy-line)", color: "var(--kb-on-navy)" }}
+          >
+            Clear all
+          </button>
+        </div>
 
         <div className="mt-5 space-y-3">
           {cart.items.map((item) => (
@@ -119,6 +134,14 @@ export function CartView({ isSignedIn }: { isSignedIn: boolean }) {
                   style={{ background: "var(--kb-green-deep)" }}
                 >
                   +
+                </button>
+                <button
+                  aria-label={`Remove ${item.name} from cart`}
+                  onClick={() => removeItem(item.menuItemId)}
+                  className="ml-1 flex h-7 w-7 items-center justify-center rounded-full"
+                  style={{ color: "var(--kb-danger)" }}
+                >
+                  <TrashIcon />
                 </button>
               </div>
             </div>
@@ -206,5 +229,16 @@ export function CartView({ isSignedIn }: { isSignedIn: boolean }) {
         )}
       </div>
     </div>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+      <path d="M10 11v6M14 11v6" />
+      <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
+    </svg>
   );
 }

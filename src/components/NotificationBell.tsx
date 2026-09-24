@@ -18,7 +18,7 @@ export function NotificationBell() {
     <Link
       href="/notifications"
       aria-label={label}
-      className="relative ml-auto flex items-center justify-center rounded-full p-2"
+      className="relative flex items-center justify-center rounded-full p-2"
       style={{ color: "var(--kb-on-navy)" }}
     >
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
