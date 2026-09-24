@@ -82,6 +82,14 @@ export function TopBar({ location = "Singapore" }: { location?: string }) {
                 Home
               </Link>
               <Link
+                href="/orders"
+                onClick={() => setMenuOpen(false)}
+                className="block rounded-xl px-3 py-2.5 text-sm font-medium"
+                style={{ color: "var(--kb-on-navy)" }}
+              >
+                My Orders
+              </Link>
+              <Link
                 href="/account"
                 onClick={() => setMenuOpen(false)}
                 className="block rounded-xl px-3 py-2.5 text-sm font-medium"

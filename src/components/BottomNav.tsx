@@ -22,10 +22,16 @@ export function BottomNav() {
         <span className="text-[11px] font-medium">Home</span>
       </Link>
 
-      <div className="flex flex-1 flex-col items-center gap-1 py-1.5 opacity-40" aria-disabled="true">
+      <Link
+        href="/orders"
+        className="flex flex-1 flex-col items-center gap-1 py-1.5"
+        aria-current={pathname === "/orders" ? "page" : undefined}
+        style={{ color: pathname === "/orders" ? "var(--kb-purple)" : "var(--kb-ink-soft)" }}
+      >
+        {pathname === "/orders" && <span className="h-0.5 w-6 rounded-full" style={{ background: "var(--kb-purple)" }} />}
         <OrdersIcon />
-        <span className="text-[11px] font-medium">Orders (soon)</span>
-      </div>
+        <span className="text-[11px] font-medium">Orders</span>
+      </Link>
 
       <div className="flex flex-1 flex-col items-center gap-1 py-1.5 opacity-40" aria-disabled="true">
         <HeartIcon />
