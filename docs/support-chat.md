@@ -6,7 +6,8 @@ A "Report an issue" button on `/orders/[id]` opens a chat with Kopi Boy HQ
 about that order, with optional photo evidence. Same Realtime pattern as the
 [rider chat](messages.md), with two differences:
 
-- **Who:** the order's customer and **any** admin (`profiles.role = 'admin'`),
+- **Who:** the order's customer and **any** admin (checked with
+  `public.user_has_role('admin')`, the Partner schema's canonical role check),
   not one assigned rider. Cooks and riders can't see it.
 - **No window:** the thread is open at every stage and stays readable after
   delivery/cancellation. It's the record of the complaint. If a thread already
@@ -18,7 +19,8 @@ about that order, with optional photo evidence. Same Realtime pattern as the
   `photo_path` (nullable), `created_at`. `body` may be empty only when a photo
   is attached. `photo_path` must sit under the message's own order folder.
 - `complaint_thread_participant(order_id)` (`SECURITY DEFINER`): the caller is
-  an admin or the order's customer. SELECT and INSERT both require it, and
+  an admin (`user_has_role('admin')`) or the order's customer. §25 carries an
+  idempotent copy of `user_has_role` so it also runs before the Partner script. SELECT and INSERT both require it, and
   INSERT also requires `sender_id = auth.uid()`. There's no UPDATE/DELETE
   policy or grant, so messages are immutable.
 - Grants: `authenticated` has `SELECT, INSERT` only. `anon` has nothing.
@@ -31,9 +33,12 @@ about that order, with optional photo evidence. Same Realtime pattern as the
 The column is `photo_path`, not `photo_url`: in a private bucket there is no
 permanent URL to store.
 
-**Admin side:** the Boss app's `/complaints` page is still a placeholder.
-Until it gets a thread view, admins can reply only through the API (their own
-session) or the SQL Editor.
+**Admin side:** the Boss app's `/complaints` lists every thread grouped by
+customer, with "Needs reply" (newest message is the customer's) sorted first,
+and `/complaints/<order id>` shows the full conversation with photos and a
+reply box. Both gate on `user_has_role('admin')` and use the same Realtime
+pattern, so an HQ reply reaches this app's `SupportChat` through its existing
+`order_id` subscription. Nothing changes on this side.
 
 ## Order history cap + Orders tab (§27–28)
 

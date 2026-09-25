@@ -1098,9 +1098,26 @@ alter table public.complaint_messages enable row level security;
 revoke all on public.complaint_messages from anon, authenticated;
 grant select, insert on public.complaint_messages to authenticated;
 
+-- Idempotent copy — owned by the Partner app's schema, where it's the
+-- canonical role check. Repeated here verbatim so this section also runs on a
+-- database where the Partner script hasn't been run yet. HQ access to
+-- complaint threads (this app and the Boss app's /complaints) goes through
+-- user_has_role('admin'), not has_role().
+create or replace function public.user_has_role(check_role text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles where id = auth.uid() and role = check_role
+  );
+$$;
+
 -- SECURITY DEFINER for the same reason as order_chat_participant(): the
--- check must not depend on the caller's own orders RLS, and has_role() reads
--- profiles. No terminal-state condition, on purpose — see above.
+-- check must not depend on the caller's own orders RLS, and user_has_role()
+-- reads profiles. No terminal-state condition, on purpose — see above.
 create or replace function public.complaint_thread_participant(p_order_id uuid)
 returns boolean
 language sql
@@ -1108,7 +1125,7 @@ stable
 security definer
 set search_path = public
 as $$
-  select public.has_role('admin')
+  select public.user_has_role('admin')
     or exists (select 1 from public.orders o where o.id = p_order_id and o.customer_id = auth.uid());
 $$;
 
