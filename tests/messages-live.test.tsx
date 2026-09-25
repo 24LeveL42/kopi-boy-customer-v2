@@ -165,4 +165,15 @@ describe("OrderChat — live via Realtime", () => {
     cleanup();
     expect(fake.client.removeChannel).toHaveBeenCalledWith(channel);
   });
+
+  it("renders a rider's photo-only message as a signed image, not an empty bubble", async () => {
+    const fake = createFakeMessagesSupabase({
+      rows: [makeMessage({ id: "p", sender_id: "rider-1", body: "", photo_path: "order-1/rider-1/x.jpg" })],
+    });
+    await mountChat(fake);
+    const img = await screen.findByTestId("chat-photo");
+    expect(img.getAttribute("src")).toBe("https://signed.example/order-1/rider-1/x.jpg");
+    expect(fake.state.signed).toEqual(["order-1/rider-1/x.jpg"]);
+    expect(screen.getByTestId("chat-message").querySelector("p")).toBeNull();
+  });
 });

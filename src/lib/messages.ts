@@ -13,9 +13,18 @@ export interface MessageRow {
   id: string;
   order_id: string;
   sender_id: string;
+  /** May be empty only when photo_path is set (messages_body_check). */
   body: string;
+  /** Key in the private order-chat-photos bucket (Partner app's docs/supabase-messages.sql §4-5), not a URL. */
+  photo_path: string | null;
   created_at: string;
 }
+
+/** The Partner app's private bucket for chat photos — it owns the bucket and its policies. */
+export const ORDER_CHAT_PHOTO_BUCKET = "order-chat-photos";
+
+/** How long a rendered photo link stays valid. */
+export const ORDER_CHAT_PHOTO_URL_TTL_SECONDS = 60 * 60;
 
 /** Matches the `messages.body` check constraint (docs/supabase-messages.sql). */
 export const MESSAGE_BODY_MAX_LENGTH = 2000;

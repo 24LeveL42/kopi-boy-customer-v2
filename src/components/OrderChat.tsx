@@ -3,7 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ChatBubble } from "@/components/ChatBubble";
-import { mergeMessages, normalizeMessageBody, MESSAGE_BODY_MAX_LENGTH, MESSAGE_FETCH_LIMIT, type MessageRow } from "@/lib/messages";
+import {
+  mergeMessages,
+  normalizeMessageBody,
+  MESSAGE_BODY_MAX_LENGTH,
+  MESSAGE_FETCH_LIMIT,
+  ORDER_CHAT_PHOTO_BUCKET,
+  ORDER_CHAT_PHOTO_URL_TTL_SECONDS,
+  type MessageRow,
+} from "@/lib/messages";
 
 type ChatStatus = "loading" | "ready" | "error";
 
@@ -37,7 +45,9 @@ export function OrderChat({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const messagesRef = useRef<MessageRow[]>([]);
+  const requestedPathsRef = useRef<Set<string>>(new Set());
   const listEndRef = useRef<HTMLDivElement | null>(null);
   const riderLabel = riderName?.trim() || "Your rider";
 
@@ -93,6 +103,28 @@ export function OrderChat({
     };
   }, [orderId, applyMessages]);
 
+  // Sign any photo keys we haven't signed yet, in one batch per change.
+  useEffect(() => {
+    const missing = messages
+      .map((m) => m.photo_path)
+      .filter((p): p is string => Boolean(p) && !requestedPathsRef.current.has(p!));
+    if (missing.length === 0) return;
+    for (const p of missing) requestedPathsRef.current.add(p);
+    let cancelled = false;
+    createClient()
+      .storage.from(ORDER_CHAT_PHOTO_BUCKET)
+      .createSignedUrls(missing, ORDER_CHAT_PHOTO_URL_TTL_SECONDS)
+      .then(({ data }) => {
+        if (cancelled || !data) return;
+        const signed: Record<string, string> = {};
+        for (const item of data) if (item.path && item.signedUrl) signed[item.path] = item.signedUrl;
+        setPhotoUrls((prev) => ({ ...prev, ...signed }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [messages]);
+
   useEffect(() => {
     // jsdom (tests) has no scrollIntoView; real browsers always do.
     listEndRef.current?.scrollIntoView?.({ block: "end" });
@@ -138,9 +170,20 @@ export function OrderChat({
         )}
         {messages.map((m) => {
           const mine = m.sender_id === currentUserId;
+          const url = m.photo_path ? photoUrls[m.photo_path] : undefined;
           return (
             <ChatBubble key={m.id} mine={mine} senderLabel={riderLabel} testId="chat-message">
-              <p className="px-3 py-1.5">{m.body}</p>
+              {m.photo_path &&
+                (url ? (
+                  <a href={url} target="_blank" rel="noopener noreferrer">
+                    {/* Short-lived signed URL from a private bucket — next/image can't (and shouldn't) cache it. */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={url} alt="Attached photo" data-testid="chat-photo" className="max-h-48 w-full object-cover" />
+                  </a>
+                ) : (
+                  <span className="block px-3 py-1.5 text-xs opacity-80">Loading photo…</span>
+                ))}
+              {m.body && <p className="px-3 py-1.5">{m.body}</p>}
             </ChatBubble>
           );
         })}

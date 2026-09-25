@@ -8,6 +8,7 @@ export function makeMessage(overrides: Partial<MessageRow> = {}): MessageRow {
     order_id: "order-1",
     sender_id: "customer-1",
     body: "Hello!",
+    photo_path: null,
     created_at: "2026-09-20T10:00:00.000Z",
     ...overrides,
   };
@@ -21,7 +22,7 @@ export interface RecordedInsert {
 /**
  * Minimal fake of the supabase-js surface OrderChat touches: channel()/
  * removeChannel(), and from('messages') select().eq().order().limit() /
- * insert().
+ * insert(), and storage createSignedUrls() for photo messages.
  */
 export function createFakeMessagesSupabase(opts: { rows?: MessageRow[] } = {}) {
   const state = {
@@ -30,6 +31,7 @@ export function createFakeMessagesSupabase(opts: { rows?: MessageRow[] } = {}) {
     insertError: null as { message: string } | null,
     selects: 0,
     inserts: [] as RecordedInsert[],
+    signed: [] as string[],
   };
   const channels: FakeChannel[] = [];
 
@@ -40,6 +42,14 @@ export function createFakeMessagesSupabase(opts: { rows?: MessageRow[] } = {}) {
       return ch;
     },
     removeChannel: vi.fn(),
+    storage: {
+      from: () => ({
+        createSignedUrls: async (paths: string[]) => {
+          state.signed.push(...paths);
+          return { data: paths.map((path) => ({ path, signedUrl: `https://signed.example/${path}` })), error: null };
+        },
+      }),
+    },
     from: (table: string) => ({
       select: () => ({
         eq: () => ({
