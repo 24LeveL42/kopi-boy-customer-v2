@@ -22,11 +22,12 @@ vi.mock("@/lib/supabase/server", () => ({
       const result = () => {
         if (table === "orders") return { data: db.order };
         if (table === "kitchens") return { data: { business_name: "Aunty May", paynow_type: null, paynow_value: null } };
+        if (table === "messages") return { data: null };
         if (table === "order_items") return { data: [{ id: "i1", name: "Kopi", price: 2, quantity: 1 }] };
         return { data: db.deliveries };
       };
       const builder: Record<string, unknown> = {};
-      for (const m of ["select", "eq", "order"]) builder[m] = () => builder;
+      for (const m of ["select", "eq", "order", "limit"]) builder[m] = () => builder;
       builder.maybeSingle = () => Promise.resolve(result());
       builder.returns = () => Promise.resolve(result());
       return builder;

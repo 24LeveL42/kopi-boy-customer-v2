@@ -5,12 +5,17 @@ import { RiderCard, isTrustedPhotoUrl } from "@/components/RiderCard";
 
 const SUPABASE = "https://proj.supabase.co";
 const PHOTO = `${SUPABASE}/storage/v1/object/public/rider-photos/rider-1/me.jpg`;
+const SIGNED = `${SUPABASE}/storage/v1/object/sign/order-chat-photos`;
+const PROOF_PATH = "order-1/rider-1/proof.jpg";
 
 const db = vi.hoisted(() => ({
   order: null as unknown,
   deliveries: [] as unknown[],
   rpcResult: { data: null, error: null } as { data: unknown; error: unknown },
   rpcCalls: [] as { fn: string; args: unknown }[],
+  proof: null as { photo_path: string | null } | null,
+  messageFilters: [] as [string, unknown][],
+  signedPaths: [] as string[],
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -22,15 +27,28 @@ vi.mock("@/lib/supabase/server", () => ({
       db.rpcCalls.push({ fn, args });
       return Promise.resolve(db.rpcResult);
     },
+    storage: {
+      from: () => ({
+        createSignedUrl: async (path: string) => {
+          db.signedPaths.push(path);
+          return { data: { signedUrl: `${SIGNED}/${path}` }, error: null };
+        },
+      }),
+    },
     from(table: string) {
       const result = () => {
         if (table === "orders") return { data: db.order };
         if (table === "kitchens") return { data: { business_name: "Aunty May", paynow_type: null, paynow_value: null } };
+        if (table === "messages") return { data: db.proof };
         if (table === "order_items") return { data: [{ id: "i1", name: "Kopi", price: 2, quantity: 1 }] };
         return { data: db.deliveries };
       };
       const builder: Record<string, unknown> = {};
-      for (const m of ["select", "eq", "order"]) builder[m] = () => builder;
+      for (const m of ["select", "eq", "order", "limit"]) builder[m] = () => builder;
+      builder.eq = (col: string, val: unknown) => {
+        if (table === "messages") db.messageFilters.push([col, val]);
+        return builder;
+      };
       builder.maybeSingle = () => Promise.resolve(result());
       builder.returns = () => Promise.resolve(result());
       return builder;
@@ -72,6 +90,9 @@ async function renderPage(o: OrderRow, deliveries: DeliveryRequestRow[], rpcData
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", SUPABASE);
   db.rpcCalls = [];
+  db.proof = null;
+  db.messageFilters = [];
+  db.signedPaths = [];
 });
 afterEach(() => {
   cleanup();
@@ -86,6 +107,30 @@ describe("/orders/[id] — rider card", () => {
     const img = within(card).getByAltText("Photo of Ahmad Rahman") as HTMLImageElement;
     expect(decodeURIComponent(img.getAttribute("src")!)).toContain(PHOTO);
     expect(db.rpcCalls).toEqual([{ fn: "get_order_rider", args: { p_order_id: "order-1" } }]);
+  });
+
+  it("shows the proof-of-delivery photo once the delivery is completed", async () => {
+    db.proof = { photo_path: PROOF_PATH };
+    const { container } = await renderPage(order(), [completed]);
+    const card = within(container).getByTestId("proof-of-delivery");
+    expect(card).toHaveTextContent("Proof of delivery");
+    const img = within(card).getByAltText("Photo the rider took on delivery") as HTMLImageElement;
+    expect(img.getAttribute("src")).toBe(`${SIGNED}/${PROOF_PATH}`);
+    expect(db.messageFilters).toEqual([["order_id", "order-1"], ["is_delivery_proof", true]]);
+    expect(db.signedPaths).toEqual([PROOF_PATH]);
+  });
+
+  it("shows no proof card while the delivery is still in progress, or when there's no proof message", async () => {
+    db.proof = { photo_path: PROOF_PATH };
+    const during = await renderPage(order(), [accepted]);
+    expect(within(during.container).queryByTestId("proof-of-delivery")).toBeNull();
+    expect(db.messageFilters).toEqual([]);
+    cleanup();
+
+    db.proof = null;
+    const without = await renderPage(order(), [completed]);
+    expect(within(without.container).queryByTestId("proof-of-delivery")).toBeNull();
+    expect(db.signedPaths).toEqual([]);
   });
 
   it("keeps showing the rider after delivery is completed", async () => {

@@ -17,6 +17,12 @@ export interface MessageRow {
   body: string;
   /** Key in the private order-chat-photos bucket (Partner app's docs/supabase-messages.sql §4-5), not a URL. */
   photo_path: string | null;
+  /**
+   * The rider's proof-of-delivery message (Partner app's
+   * docs/supabase-messages.sql §6-7). The one message that stays readable
+   * by the customer after the delivery is completed.
+   */
+  is_delivery_proof: boolean;
   created_at: string;
 }
 

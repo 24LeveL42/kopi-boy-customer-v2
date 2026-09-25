@@ -6,6 +6,8 @@ import { CancelOrderButton } from "@/components/CancelOrderButton";
 import { OrderProgress, type ProgressPosition } from "@/components/OrderProgress";
 import { RiderCard, type RiderInfo } from "@/components/RiderCard";
 import { OrderChat } from "@/components/OrderChat";
+import { ProofOfDeliveryCard } from "@/components/ProofOfDeliveryCard";
+import { ORDER_CHAT_PHOTO_BUCKET, ORDER_CHAT_PHOTO_URL_TTL_SECONDS, type MessageRow } from "@/lib/messages";
 import { SupportChatToggle } from "@/components/SupportChat";
 
 export interface OrderRow {
@@ -209,6 +211,28 @@ export default async function OrderConfirmationPage({
     rider = (data as RiderInfo[] | null)?.[0] ?? null;
   }
 
+  // Proof-of-delivery photo, once delivered. The chat is closed by then; RLS
+  // still lets the customer read just this message and sign its photo (Partner
+  // app's docs/supabase-messages.sql §7). If that migration hasn't run, the
+  // is_delivery_proof filter errors -> no card, rest of the page unaffected.
+  let proofPhotoUrl: string | null = null;
+  if (activeDelivery?.status === "completed" && !header.failed) {
+    const { data: proof } = await supabase
+      .from("messages")
+      .select("photo_path")
+      .eq("order_id", id)
+      .eq("is_delivery_proof", true)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<Pick<MessageRow, "photo_path">>();
+    if (proof?.photo_path) {
+      const { data: signed } = await supabase.storage
+        .from(ORDER_CHAT_PHOTO_BUCKET)
+        .createSignedUrl(proof.photo_path, ORDER_CHAT_PHOTO_URL_TTL_SECONDS);
+      proofPhotoUrl = signed?.signedUrl ?? null;
+    }
+  }
+
   const isSettled =
     order.order_status === "cancelled" || order.order_status === "rejected" || activeDelivery?.status === "completed";
 
@@ -250,6 +274,9 @@ export default async function OrderConfirmationPage({
             </p>
           )}
           {rider && <RiderCard rider={rider} />}
+          {proofPhotoUrl && (
+            <ProofOfDeliveryCard photoUrl={proofPhotoUrl} deliveredAt={formatTimestamp(activeDelivery?.completed_at ?? null)} />
+          )}
           {chatVisible && <OrderChat orderId={order.id} currentUserId={user!.id} riderName={rider?.full_name ?? null} />}
           {/* A cancelled/rejected order will never be accepted or paid for, so
               "pay via PayNow once accepted" would be wrong — hide the line. */}

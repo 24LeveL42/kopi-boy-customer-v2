@@ -9,6 +9,7 @@ export function makeMessage(overrides: Partial<MessageRow> = {}): MessageRow {
     sender_id: "customer-1",
     body: "Hello!",
     photo_path: null,
+    is_delivery_proof: false,
     created_at: "2026-09-20T10:00:00.000Z",
     ...overrides,
   };
