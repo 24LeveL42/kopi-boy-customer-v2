@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { CameraIcon } from "@/components/CameraIcon";
 import { ChatBubble } from "@/components/ChatBubble";
 import {
   mergeMessages,
@@ -9,7 +10,10 @@ import {
   MESSAGE_BODY_MAX_LENGTH,
   MESSAGE_FETCH_LIMIT,
   ORDER_CHAT_PHOTO_BUCKET,
+  ORDER_CHAT_PHOTO_TYPES,
   ORDER_CHAT_PHOTO_URL_TTL_SECONDS,
+  orderChatPhotoPath,
+  validateOrderChatPhoto,
   type MessageRow,
 } from "@/lib/messages";
 
@@ -30,6 +34,10 @@ type ChatStatus = "loading" | "ready" | "error";
  * window so the chat box vanishes from the UI at the same moment the
  * database would start rejecting it (e.g. once delivered), instead of
  * lingering with silent send failures.
+ *
+ * Either side can attach a photo. Photos live in the Partner-owned private
+ * order-chat-photos bucket; a message stores the object key and this
+ * component swaps it for a short-lived signed URL to render.
  */
 export function OrderChat({
   orderId,
@@ -43,12 +51,14 @@ export function OrderChat({
   const [status, setStatus] = useState<ChatStatus>("loading");
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [draft, setDraft] = useState("");
+  const [photo, setPhoto] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const messagesRef = useRef<MessageRow[]>([]);
   const requestedPathsRef = useRef<Set<string>>(new Set());
   const listEndRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const riderLabel = riderName?.trim() || "Your rider";
 
   const applyMessages = useCallback((update: (prev: MessageRow[]) => MessageRow[]) => {
@@ -130,21 +140,53 @@ export function OrderChat({
     listEndRef.current?.scrollIntoView?.({ block: "end" });
   }, [messages]);
 
+  function handlePhotoPicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] ?? null;
+    e.target.value = ""; // so picking the same file again still fires onChange
+    if (!file) return;
+    const problem = validateOrderChatPhoto(file);
+    if (problem) {
+      setSendError(problem);
+      return;
+    }
+    setSendError(null);
+    setPhoto(file);
+  }
+
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
-    const body = normalizeMessageBody(draft);
-    if (!body || sending) return;
+    const body = normalizeMessageBody(draft, photo !== null);
+    if (body === null || sending) return;
     setSending(true);
     setSendError(null);
     const supabase = createClient();
-    const { error } = await supabase.from("messages").insert({ order_id: orderId, sender_id: currentUserId, body });
+
+    let photoPath: string | null = null;
+    if (photo) {
+      photoPath = orderChatPhotoPath(orderId, currentUserId, photo.name, crypto.randomUUID());
+      const { error: uploadError } = await supabase.storage
+        .from(ORDER_CHAT_PHOTO_BUCKET)
+        .upload(photoPath, photo, { contentType: photo.type, upsert: false });
+      if (uploadError) {
+        setSending(false);
+        setSendError("Photo couldn't be uploaded — this chat may have closed.");
+        return;
+      }
+    }
+
+    const { error } = await supabase
+      .from("messages")
+      .insert({ order_id: orderId, sender_id: currentUserId, body, photo_path: photoPath });
     setSending(false);
     if (error) {
       setSendError("Message couldn't be sent — this chat may have closed.");
       return;
     }
     setDraft("");
+    setPhoto(null);
   }
+
+  const canSend = !sending && normalizeMessageBody(draft, photo !== null) !== null;
 
   return (
     <div data-testid="order-chat" className="mt-4 rounded-xl text-left" style={{ background: "var(--kb-cream)" }}>
@@ -190,7 +232,34 @@ export function OrderChat({
         <div ref={listEndRef} />
       </div>
 
+      {photo && (
+        <div className="flex items-center justify-between gap-2 border-t px-3 py-1.5 text-xs" style={{ borderColor: "var(--kb-navy-line)", color: "var(--kb-ink)" }}>
+          <span className="truncate">📎 {photo.name}</span>
+          <button type="button" onClick={() => setPhoto(null)} className="shrink-0 font-semibold" style={{ color: "var(--kb-danger)" }}>
+            Remove
+          </button>
+        </div>
+      )}
+
       <form onSubmit={handleSend} className="flex items-center gap-2 border-t p-2" style={{ borderColor: "var(--kb-navy-line)" }}>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={ORDER_CHAT_PHOTO_TYPES.join(",")}
+          onChange={handlePhotoPicked}
+          className="hidden"
+          aria-label="Attach photo"
+          data-testid="chat-photo-input"
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          aria-label="Attach a photo"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white"
+          style={{ color: "var(--kb-ink-soft)" }}
+        >
+          <CameraIcon />
+        </button>
         <input
           type="text"
           value={draft}
@@ -206,11 +275,11 @@ export function OrderChat({
         />
         <button
           type="submit"
-          disabled={sending || !normalizeMessageBody(draft)}
+          disabled={!canSend}
           className="shrink-0 rounded-full px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
           style={{ background: "var(--kb-green-deep)" }}
         >
-          Send
+          {sending ? "Sending…" : "Send"}
         </button>
       </form>
       {sendError && (

@@ -23,6 +23,12 @@ export interface MessageRow {
 /** The Partner app's private bucket for chat photos — it owns the bucket and its policies. */
 export const ORDER_CHAT_PHOTO_BUCKET = "order-chat-photos";
 
+/** Matches the bucket's file_size_limit. Checked client-side only to give a clear error before uploading. */
+export const ORDER_CHAT_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+
+/** Matches the bucket's allowed_mime_types. */
+export const ORDER_CHAT_PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
+
 /** How long a rendered photo link stays valid. */
 export const ORDER_CHAT_PHOTO_URL_TTL_SECONDS = 60 * 60;
 
@@ -47,9 +53,33 @@ export function mergeMessages<T extends { id: string; created_at: string }>(exis
   );
 }
 
-/** Trims and validates a draft message the same way the `body` check constraint does. */
-export function normalizeMessageBody(raw: string): string | null {
+/**
+ * Trims and validates a draft message the same way the `body` check
+ * constraint does: text is required unless a photo goes with it. Returns the
+ * trimmed body (possibly empty alongside a photo), or null when there's
+ * nothing sendable.
+ */
+export function normalizeMessageBody(raw: string, hasPhoto = false): string | null {
   const body = raw.trim();
-  if (!body || body.length > MESSAGE_BODY_MAX_LENGTH) return null;
+  if (body.length > MESSAGE_BODY_MAX_LENGTH) return null;
+  if (!body && !hasPhoto) return null;
   return body;
+}
+
+/** Returns why a picked file can't be attached, or null if it's fine. */
+export function validateOrderChatPhoto(file: { type: string; size: number }): string | null {
+  if (!ORDER_CHAT_PHOTO_TYPES.includes(file.type)) return "Please choose a JPEG, PNG, WebP or HEIC photo.";
+  if (file.size > ORDER_CHAT_PHOTO_MAX_BYTES) return "That photo is over 5 MB — please choose a smaller one.";
+  return null;
+}
+
+/**
+ * Object key `<order_id>/<uploader_id>/<random>.<ext>` — the bucket's upload
+ * policy requires exactly this layout (first folder = an order whose chat the
+ * uploader is in, second = the uploader), and messages_photo_path_check
+ * requires the key to sit under the message's own order.
+ */
+export function orderChatPhotoPath(orderId: string, userId: string, fileName: string, id: string): string {
+  const ext = /\.([a-z0-9]{1,5})$/i.exec(fileName)?.[1]?.toLowerCase() ?? "jpg";
+  return `${orderId}/${userId}/${id}.${ext}`;
 }

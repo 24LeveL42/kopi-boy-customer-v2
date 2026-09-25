@@ -22,16 +22,18 @@ export interface RecordedInsert {
 /**
  * Minimal fake of the supabase-js surface OrderChat touches: channel()/
  * removeChannel(), and from('messages') select().eq().order().limit() /
- * insert(), and storage createSignedUrls() for photo messages.
+ * insert(), and storage upload()/createSignedUrls() for photo messages.
  */
 export function createFakeMessagesSupabase(opts: { rows?: MessageRow[] } = {}) {
   const state = {
     rows: opts.rows ?? [],
     selectError: null as { message: string } | null,
     insertError: null as { message: string } | null,
+    uploadError: null as { message: string } | null,
     selects: 0,
     inserts: [] as RecordedInsert[],
     signed: [] as string[],
+    uploads: [] as { bucket: string; path: string; contentType?: string }[],
   };
   const channels: FakeChannel[] = [];
 
@@ -43,7 +45,11 @@ export function createFakeMessagesSupabase(opts: { rows?: MessageRow[] } = {}) {
     },
     removeChannel: vi.fn(),
     storage: {
-      from: () => ({
+      from: (bucket: string) => ({
+        upload: async (path: string, _file: File, o: { contentType?: string }) => {
+          state.uploads.push({ bucket, path, contentType: o.contentType });
+          return { data: state.uploadError ? null : { path }, error: state.uploadError };
+        },
         createSignedUrls: async (paths: string[]) => {
           state.signed.push(...paths);
           return { data: paths.map((path) => ({ path, signedUrl: `https://signed.example/${path}` })), error: null };

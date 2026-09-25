@@ -30,6 +30,7 @@ async function mountChat(fake: Fake, props: Partial<React.ComponentProps<typeof 
 describe("OrderChat — live via Realtime", () => {
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
   });
 
   it("loads existing messages, oldest first", async () => {
@@ -113,7 +114,7 @@ describe("OrderChat — live via Realtime", () => {
     await waitFor(() => expect(fake.state.inserts).toHaveLength(1));
     expect(fake.state.inserts[0]).toEqual({
       table: "messages",
-      values: { order_id: "order-1", sender_id: "customer-1", body: "hello" },
+      values: { order_id: "order-1", sender_id: "customer-1", body: "hello", photo_path: null },
     });
     expect(screen.getByLabelText("Message")).toHaveValue("");
   });
@@ -175,5 +176,46 @@ describe("OrderChat — live via Realtime", () => {
     expect(img.getAttribute("src")).toBe("https://signed.example/order-1/rider-1/x.jpg");
     expect(fake.state.signed).toEqual(["order-1/rider-1/x.jpg"]);
     expect(screen.getByTestId("chat-message").querySelector("p")).toBeNull();
+  });
+
+  it("uploads an attached photo under <order>/<user>/ and sends it with no text", async () => {
+    vi.stubGlobal("crypto", { ...crypto, randomUUID: () => "uuid-1" });
+    const fake = createFakeMessagesSupabase();
+    await mountChat(fake);
+    const file = new File(["x"], "Gate Code.PNG", { type: "image/png" });
+    fireEvent.change(screen.getByTestId("chat-photo-input"), { target: { files: [file] } });
+    expect(screen.getByText(/Gate Code\.PNG/)).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    });
+    expect(fake.state.uploads).toEqual([{ bucket: "order-chat-photos", path: "order-1/customer-1/uuid-1.png", contentType: "image/png" }]);
+    expect(fake.state.inserts[0].values).toEqual({
+      order_id: "order-1",
+      sender_id: "customer-1",
+      body: "",
+      photo_path: "order-1/customer-1/uuid-1.png",
+    });
+    expect(screen.queryByText(/Gate Code\.PNG/)).toBeNull();
+  });
+
+  it("does not insert the message if the photo upload fails", async () => {
+    const fake = createFakeMessagesSupabase();
+    fake.state.uploadError = { message: "new row violates row-level security policy" };
+    await mountChat(fake);
+    fireEvent.change(screen.getByTestId("chat-photo-input"), { target: { files: [new File(["x"], "a.jpg", { type: "image/jpeg" })] } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    });
+    expect(fake.state.inserts).toHaveLength(0);
+    expect(screen.getByText(/Photo couldn't be uploaded/)).toBeInTheDocument();
+  });
+
+  it("rejects a non-image or oversized file before uploading", async () => {
+    const fake = createFakeMessagesSupabase();
+    await mountChat(fake);
+    fireEvent.change(screen.getByTestId("chat-photo-input"), { target: { files: [new File(["x"], "a.pdf", { type: "application/pdf" })] } });
+    expect(screen.getByText(/JPEG, PNG, WebP or HEIC/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(fake.state.uploads).toHaveLength(0);
   });
 });

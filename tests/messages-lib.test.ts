@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { mergeMessages, normalizeMessageBody, MESSAGE_BODY_MAX_LENGTH } from "@/lib/messages";
+import {
+  mergeMessages,
+  normalizeMessageBody,
+  orderChatPhotoPath,
+  validateOrderChatPhoto,
+  MESSAGE_BODY_MAX_LENGTH,
+  ORDER_CHAT_PHOTO_MAX_BYTES,
+} from "@/lib/messages";
 import { makeMessage } from "./helpers/fake-messages-supabase";
 
 describe("mergeMessages", () => {
@@ -29,5 +36,32 @@ describe("normalizeMessageBody", () => {
   it("rejects text over the body check constraint's limit", () => {
     expect(normalizeMessageBody("a".repeat(MESSAGE_BODY_MAX_LENGTH))).toBe("a".repeat(MESSAGE_BODY_MAX_LENGTH));
     expect(normalizeMessageBody("a".repeat(MESSAGE_BODY_MAX_LENGTH + 1))).toBeNull();
+  });
+
+  it("allows an empty body alongside a photo", () => {
+    expect(normalizeMessageBody("   ", true)).toBe("");
+    expect(normalizeMessageBody("a".repeat(MESSAGE_BODY_MAX_LENGTH + 1), true)).toBeNull();
+  });
+});
+
+describe("validateOrderChatPhoto", () => {
+  it("accepts the bucket's image types up to 5 MB", () => {
+    expect(validateOrderChatPhoto({ type: "image/jpeg", size: ORDER_CHAT_PHOTO_MAX_BYTES })).toBeNull();
+    expect(validateOrderChatPhoto({ type: "image/heic", size: 1 })).toBeNull();
+  });
+
+  it("rejects other types and oversized files", () => {
+    expect(validateOrderChatPhoto({ type: "application/pdf", size: 1 })).toMatch(/JPEG, PNG, WebP or HEIC/);
+    expect(validateOrderChatPhoto({ type: "image/png", size: ORDER_CHAT_PHOTO_MAX_BYTES + 1 })).toMatch(/over 5 MB/);
+  });
+});
+
+describe("orderChatPhotoPath", () => {
+  it("builds <order>/<user>/<id>.<ext> with a lower-cased extension", () => {
+    expect(orderChatPhotoPath("o", "u", "Door.JPEG", "id")).toBe("o/u/id.jpeg");
+  });
+
+  it("falls back to jpg when the name has no usable extension", () => {
+    expect(orderChatPhotoPath("o", "u", "photo", "id")).toBe("o/u/id.jpg");
   });
 });
