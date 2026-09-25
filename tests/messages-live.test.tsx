@@ -46,6 +46,29 @@ describe("OrderChat — live via Realtime", () => {
     expect(items[1]).toHaveTextContent("Almost there!");
   });
 
+  it("puts the customer's messages on the right and labels the rider's on the left with their name", async () => {
+    const fake = createFakeMessagesSupabase({
+      rows: [
+        makeMessage({ id: "a", sender_id: "customer-1", body: "Where are you?", created_at: "2026-09-20T10:00:00.000Z" }),
+        makeMessage({ id: "b", sender_id: "rider-1", body: "Almost there!", created_at: "2026-09-20T10:01:00.000Z" }),
+      ],
+    });
+    await mountChat(fake);
+    const [mine, theirs] = await screen.findAllByTestId("chat-message");
+    expect(mine).toHaveAttribute("data-mine", "true");
+    expect(mine).toHaveClass("items-end");
+    expect(mine).not.toHaveTextContent("Ah Seng");
+    expect(theirs).toHaveAttribute("data-mine", "false");
+    expect(theirs).toHaveClass("items-start");
+    expect(theirs).toHaveTextContent("Ah Seng");
+  });
+
+  it("labels the rider 'Your rider' when their name isn't known", async () => {
+    const fake = createFakeMessagesSupabase({ rows: [makeMessage({ id: "b", sender_id: "rider-1", body: "Here" })] });
+    await mountChat(fake, { riderName: "  " });
+    expect(await screen.findByTestId("chat-message")).toHaveTextContent("Your rider");
+  });
+
   it("subscribes to INSERT on messages, filtered to this order", async () => {
     const fake = createFakeMessagesSupabase();
     const channel = await mountChat(fake);

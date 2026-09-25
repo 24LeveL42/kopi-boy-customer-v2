@@ -1094,7 +1094,8 @@ create index if not exists complaint_messages_order_created_idx
 alter table public.complaint_messages enable row level security;
 
 -- Same start-from-zero grant as notifications: read + send only, no update
--- or delete — a complaint thread is evidence and must be immutable.
+-- or delete — a complaint thread is evidence and must be immutable. (Section
+-- 29 lets the order's customer delete an UNRESOLVED thread: "Clear chat".)
 revoke all on public.complaint_messages from anon, authenticated;
 grant select, insert on public.complaint_messages to authenticated;
 
@@ -1313,3 +1314,101 @@ drop policy if exists "Customers can read their own orders" on public.orders;
 create policy "Customers can read their own orders"
   on public.orders for select
   using (auth.uid() = customer_id);
+
+-- ----------------------------------------------------------------------------
+-- 29. RESOLVED THREADS + CLEAR CHAT
+-- HQ marks a complaint thread resolved by inserting a row into
+-- complaint_resolutions (Boss app /complaints, or the SQL Editor until that
+-- page exists). Admin-only, insert-only: there is no update/delete policy or
+-- grant, so a resolved thread can't be reopened.
+--
+-- While a thread is UNRESOLVED, the order's customer may permanently delete it
+-- ("Clear chat" in SupportChat): every message of the thread (HQ's replies
+-- included) and every photo under the order's folder in complaint-photos (HQ's
+-- uploads included). A real DELETE, not a hide. Once resolved, the delete
+-- policies below stop matching and the thread is a permanent record —
+-- deliberately narrowing the "immutable evidence" rule of sections 25–26
+-- rather than dropping it. Admins never get delete.
+--
+-- Section 25 revokes then grants select/insert, so it wipes this DELETE grant
+-- if re-run on its own; re-running the whole script (or this section after
+-- it) restores it.
+--
+-- Photos must be removed through the Storage API (supabase.storage.remove),
+-- which needs both the select policy above and the delete policy below;
+-- Supabase blocks deleting storage.objects rows directly in SQL.
+-- ----------------------------------------------------------------------------
+create table if not exists public.complaint_resolutions (
+  order_id uuid primary key references public.orders(id) on delete cascade,
+  resolved_by uuid not null references public.profiles(id),
+  resolved_at timestamptz not null default now()
+);
+
+alter table public.complaint_resolutions enable row level security;
+
+revoke all on public.complaint_resolutions from anon, authenticated;
+grant select, insert on public.complaint_resolutions to authenticated;
+
+drop policy if exists "Customer and HQ can see whether the thread is resolved" on public.complaint_resolutions;
+create policy "Customer and HQ can see whether the thread is resolved"
+  on public.complaint_resolutions for select
+  using (public.complaint_thread_participant(order_id));
+
+drop policy if exists "HQ can mark a thread resolved" on public.complaint_resolutions;
+create policy "HQ can mark a thread resolved"
+  on public.complaint_resolutions for insert
+  with check (resolved_by = auth.uid() and public.user_has_role('admin'));
+
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+    and not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'complaint_resolutions'
+    ) then
+    execute 'alter publication supabase_realtime add table public.complaint_resolutions';
+  end if;
+end $$;
+
+-- The caller is the order's customer AND the thread isn't resolved.
+-- SECURITY DEFINER like complaint_thread_participant(): must not depend on
+-- the caller's own RLS on orders/complaint_resolutions.
+create or replace function public.complaint_thread_clearable(p_order_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (select 1 from public.orders o where o.id = p_order_id and o.customer_id = auth.uid())
+    and not exists (select 1 from public.complaint_resolutions r where r.order_id = p_order_id);
+$$;
+
+revoke all on function public.complaint_thread_clearable(uuid) from public, anon;
+grant execute on function public.complaint_thread_clearable(uuid) to authenticated;
+
+grant delete on public.complaint_messages to authenticated;
+
+drop policy if exists "Customer can clear the order's complaint thread" on public.complaint_messages;
+drop policy if exists "Customer can clear an unresolved complaint thread" on public.complaint_messages;
+create policy "Customer can clear an unresolved complaint thread"
+  on public.complaint_messages for delete
+  using (public.complaint_thread_clearable(order_id));
+
+drop policy if exists "Customer can delete the order's complaint photos" on storage.objects;
+drop policy if exists "Customer can delete an unresolved thread's photos" on storage.objects;
+create policy "Customer can delete an unresolved thread's photos"
+  on storage.objects for delete
+  to authenticated
+  using (
+    bucket_id = 'complaint-photos'
+    and case
+      when (storage.foldername(name))[1] ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        then public.complaint_thread_clearable(((storage.foldername(name))[1])::uuid)
+      else false
+    end
+  );
+
+-- Replaced by complaint_thread_clearable (only exists if an earlier draft of
+-- this section ran); the policies that used it were dropped above.
+drop function if exists public.complaint_thread_customer(uuid);

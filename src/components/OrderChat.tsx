@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { ChatBubble } from "@/components/ChatBubble";
 import { mergeMessages, normalizeMessageBody, MESSAGE_BODY_MAX_LENGTH, MESSAGE_FETCH_LIMIT, type MessageRow } from "@/lib/messages";
 
 type ChatStatus = "loading" | "ready" | "error";
@@ -38,6 +39,7 @@ export function OrderChat({
   const [sendError, setSendError] = useState<string | null>(null);
   const messagesRef = useRef<MessageRow[]>([]);
   const listEndRef = useRef<HTMLDivElement | null>(null);
+  const riderLabel = riderName?.trim() || "Your rider";
 
   const applyMessages = useCallback((update: (prev: MessageRow[]) => MessageRow[]) => {
     const next = update(messagesRef.current);
@@ -137,14 +139,9 @@ export function OrderChat({
         {messages.map((m) => {
           const mine = m.sender_id === currentUserId;
           return (
-            <div key={m.id} data-testid="chat-message" data-mine={mine} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-              <p
-                className="max-w-[80%] rounded-2xl px-3 py-1.5 text-sm break-words"
-                style={mine ? { background: "var(--kb-green-deep)", color: "white" } : { background: "white", color: "var(--kb-ink)" }}
-              >
-                {m.body}
-              </p>
-            </div>
+            <ChatBubble key={m.id} mine={mine} senderLabel={riderLabel} testId="chat-message">
+              <p className="px-3 py-1.5">{m.body}</p>
+            </ChatBubble>
           );
         })}
         <div ref={listEndRef} />

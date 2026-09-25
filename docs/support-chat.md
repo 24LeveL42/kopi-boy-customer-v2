@@ -13,6 +13,23 @@ about that order, with optional photo evidence. Same Realtime pattern as the
   delivery/cancellation. It's the record of the complaint. If a thread already
   exists, the chat starts expanded when the order page loads.
 
+- **Clear chat, only until HQ resolves the thread:** while the thread is
+  unresolved, the order's customer can permanently delete it after a
+  confirmation dialog. This is a real `DELETE` of every `complaint_messages` row
+  for that order, HQ's replies included, plus every photo under `<order_id>/`
+  in the bucket, HQ's uploads included. Once HQ marks the thread **resolved**,
+  the button disappears, live if the page is open, and the thread is a
+  permanent record. The database enforces the same rule (§29), not just the UI.
+  `clearComplaintThread()` in `src/lib/complaints.ts`:
+  1. checks resolution first, so a resolved thread's photos are never touched
+  2. removes the photos, then the rows
+  3. re-checks both, because an RLS-denied delete returns no error and simply
+     removes nothing
+
+  If HQ resolves the thread partway through a clear, the thread can end up
+  resolved but missing some photos. Storage and the table can't be deleted
+  together atomically.
+
 ### Schema (`docs/supabase-schema.sql` §25–26, owned by this repo)
 
 - `public.complaint_messages`: `id`, `order_id`, `sender_id`, `body`,
@@ -39,6 +56,29 @@ and `/complaints/<order id>` shows the full conversation with photos and a
 reply box. Both gate on `user_has_role('admin')` and use the same Realtime
 pattern, so an HQ reply reaches this app's `SupportChat` through its existing
 `order_id` subscription. Nothing changes on this side.
+
+### Resolved threads + Clear chat (§29)
+
+- `public.complaint_resolutions`: `order_id` (PK), `resolved_by`,
+  `resolved_at`. A row means HQ has resolved the thread. Thread participants
+  can read it. Only admins can insert, and only as themselves
+  (`resolved_by = auth.uid()`). There's no update or delete, so a resolved
+  thread can't be reopened. It's in the `supabase_realtime` publication so the
+  customer's page hides Clear chat live.
+- **Marking resolved:** it belongs in the Boss app's `/complaints` page, which
+  is still a placeholder. Until then, use the SQL Editor:
+  ```sql
+  insert into public.complaint_resolutions (order_id, resolved_by)
+  values ('<order id>', '<admin profile id>');
+  ```
+- `complaint_thread_clearable(order_id)` (`SECURITY DEFINER`): the caller is
+  the order's customer **and** there's no resolution row.
+- `authenticated` gets `DELETE` on `complaint_messages`, with a policy that
+  requires `complaint_thread_clearable(order_id)`. A matching
+  `storage.objects` delete policy on `complaint-photos` covers any key in the
+  order's folder. Admins get no delete.
+- Re-running §25 by itself revokes the `DELETE` grant. Run the whole file, or
+  §29 after it.
 
 ## Order history cap + Orders tab (§27–28)
 
@@ -141,3 +181,23 @@ so run the checklist below once on the live project.
 8. **Archived order still opens by link:** as that customer, open
    `/orders/<an archived order id>` (or tap its old notification). It should
    load normally, not 404.
+9. **Clear chat (§29):** on an order whose thread has at least one photo
+   (ideally one from HQ too), tap **Clear chat**, then cancel. Nothing should
+   change. Tap it again and confirm. The thread should empty, then:
+   ```sql
+   select count(*) from public.complaint_messages where order_id = '<order id>';
+   -- expect 0
+   select count(*) from storage.objects
+   where bucket_id = 'complaint-photos' and name like '<order id>/%';
+   -- expect 0
+   ```
+   An admin session (or a different customer) trying the same delete through
+   the API should remove 0 rows and 0 objects.
+10. **Resolved = permanent:** on another order with a thread (with a photo)
+    and the page open, insert its `complaint_resolutions` row (see §29 above).
+    Clear chat should vanish within about a second and "Resolved by Kopi Boy
+    Support" should appear. Then, as the customer through the API, try
+    `delete().eq('order_id', …)` on `complaint_messages` and
+    `storage.remove([...])` on its photo. Both should remove nothing, and the
+    step 9 counts should be unchanged. A second insert (reopen/re-resolve) or
+    a customer insert should be refused.

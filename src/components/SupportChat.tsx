@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { ChatBubble } from "@/components/ChatBubble";
 import { mergeMessages, MESSAGE_BODY_MAX_LENGTH, MESSAGE_FETCH_LIMIT } from "@/lib/messages";
 import {
   COMPLAINT_PHOTO_BUCKET,
   COMPLAINT_PHOTO_TYPES,
   COMPLAINT_PHOTO_URL_TTL_SECONDS,
+  clearComplaintThread,
+  isComplaintResolved,
   complaintPhotoPath,
   normalizeComplaintBody,
   validateComplaintPhoto,
@@ -29,6 +32,11 @@ type ChatStatus = "loading" | "ready" | "error";
  * Evidence photos live in the private complaint-photos bucket; a message
  * stores the object key and this component swaps it for a short-lived signed
  * URL to render.
+ *
+ * "Clear chat" is the one exception to "never closes": while HQ hasn't
+ * marked the thread resolved, the customer can permanently delete it and its
+ * photos after confirming (schema §29). Once resolved — on load, or live via
+ * Realtime — the button goes and the thread is a permanent record.
  */
 export function SupportChat({ orderId, currentUserId }: { orderId: string; currentUserId: string }) {
   const [status, setStatus] = useState<ChatStatus>("loading");
@@ -38,6 +46,10 @@ export function SupportChat({ orderId, currentUserId }: { orderId: string; curre
   const [photo, setPhoto] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
+  // null = not known (still loading, or the check failed) — Clear chat stays hidden.
+  const [resolved, setResolved] = useState<boolean | null>(null);
   const messagesRef = useRef<ComplaintMessageRow[]>([]);
   const requestedPathsRef = useRef<Set<string>>(new Set());
   const listEndRef = useRef<HTMLDivElement | null>(null);
@@ -54,6 +66,10 @@ export function SupportChat({ orderId, currentUserId }: { orderId: string; curre
     let disposed = false;
 
     async function load() {
+      void isComplaintResolved(supabase, orderId).then((r) => {
+        // Never flip back to unresolved: resolution is permanent.
+        if (!disposed) setResolved((prev) => (prev === true ? true : r));
+      });
       const { data, error } = await supabase
         .from("complaint_messages")
         .select("*")
@@ -78,6 +94,11 @@ export function SupportChat({ orderId, currentUserId }: { orderId: string; curre
         (payload) => {
           applyMessages((prev) => mergeMessages(prev, [payload.new as ComplaintMessageRow]));
         }
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "complaint_resolutions", filter: `order_id=eq.${orderId}` },
+        () => setResolved(true)
       )
       .subscribe((subscribeStatus) => {
         if (disposed) return;
@@ -168,13 +189,59 @@ export function SupportChat({ orderId, currentUserId }: { orderId: string; curre
     setPhoto(null);
   }
 
+  async function handleClear() {
+    if (clearing) return;
+    // Confirmed like the cart's "Clear all" — but this one can't be undone and HQ loses the thread too.
+    if (
+      !window.confirm(
+        "Delete this whole support chat, including any photos? This can't be undone, and Kopi Boy Support will lose the conversation too."
+      )
+    )
+      return;
+    setClearing(true);
+    setClearError(null);
+    const result = await clearComplaintThread(createClient(), orderId);
+    setClearing(false);
+    if (!result.ok) {
+      if (result.resolved) setResolved(true);
+      setClearError(result.message);
+      return;
+    }
+    applyMessages(() => []);
+    setPhotoUrls({});
+    requestedPathsRef.current = new Set();
+  }
+
   const canSend = !sending && normalizeComplaintBody(draft, photo !== null, MESSAGE_BODY_MAX_LENGTH) !== null;
 
   return (
     <div data-testid="support-chat" className="mt-3 rounded-xl text-left" style={{ background: "var(--kb-cream)" }}>
-      <p className="px-3 pt-3 text-xs font-semibold" style={{ color: "var(--kb-ink-soft)" }}>
-        Kopi Boy support — tell us what went wrong. You can attach a photo.
-      </p>
+      <div className="flex items-start justify-between gap-2 px-3 pt-3">
+        <p className="text-xs font-semibold" style={{ color: "var(--kb-ink-soft)" }}>
+          Kopi Boy support — tell us what went wrong. You can attach a photo.
+        </p>
+        {status === "ready" && resolved === false && messages.length > 0 && (
+          <button
+            type="button"
+            onClick={handleClear}
+            disabled={clearing}
+            className="shrink-0 text-xs font-semibold disabled:opacity-50"
+            style={{ color: "var(--kb-danger)" }}
+          >
+            {clearing ? "Clearing…" : "Clear chat"}
+          </button>
+        )}
+      </div>
+      {resolved && !clearError && (
+        <p data-testid="support-resolved" className="px-3 pt-1 text-xs" style={{ color: "var(--kb-ink-soft)" }}>
+          Resolved by Kopi Boy Support — this chat is kept as a record.
+        </p>
+      )}
+      {clearError && (
+        <p className="px-3 pt-1 text-xs" style={{ color: "var(--kb-danger)" }}>
+          {clearError}
+        </p>
+      )}
 
       <div className="mt-2 max-h-72 space-y-2 overflow-y-auto px-3 py-2">
         {status === "loading" && (
@@ -196,29 +263,19 @@ export function SupportChat({ orderId, currentUserId }: { orderId: string; curre
           const mine = m.sender_id === currentUserId;
           const url = m.photo_path ? photoUrls[m.photo_path] : undefined;
           return (
-            <div key={m.id} data-testid="support-message" data-mine={mine} className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
-              {!mine && (
-                <span className="mb-0.5 text-[10px] font-semibold" style={{ color: "var(--kb-ink-soft)" }}>
-                  Kopi Boy Support
-                </span>
-              )}
-              <div
-                className="max-w-[80%] overflow-hidden rounded-2xl text-sm break-words"
-                style={mine ? { background: "var(--kb-green-deep)", color: "white" } : { background: "white", color: "var(--kb-ink)" }}
-              >
-                {m.photo_path &&
-                  (url ? (
-                    <a href={url} target="_blank" rel="noopener noreferrer">
-                      {/* Short-lived signed URL from a private bucket — next/image can't (and shouldn't) cache it. */}
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={url} alt="Attached photo" data-testid="support-photo" className="max-h-48 w-full object-cover" />
-                    </a>
-                  ) : (
-                    <span className="block px-3 py-1.5 text-xs opacity-80">Loading photo…</span>
-                  ))}
-                {m.body && <p className="px-3 py-1.5">{m.body}</p>}
-              </div>
-            </div>
+            <ChatBubble key={m.id} mine={mine} senderLabel="Kopi Boy Support" testId="support-message">
+              {m.photo_path &&
+                (url ? (
+                  <a href={url} target="_blank" rel="noopener noreferrer">
+                    {/* Short-lived signed URL from a private bucket — next/image can't (and shouldn't) cache it. */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={url} alt="Attached photo" data-testid="support-photo" className="max-h-48 w-full object-cover" />
+                  </a>
+                ) : (
+                  <span className="block px-3 py-1.5 text-xs opacity-80">Loading photo…</span>
+                ))}
+              {m.body && <p className="px-3 py-1.5">{m.body}</p>}
+            </ChatBubble>
           );
         })}
         <div ref={listEndRef} />

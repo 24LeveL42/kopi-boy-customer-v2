@@ -6,6 +6,11 @@ import { FakeChannel } from "./helpers/fake-supabase";
 
 const holder = vi.hoisted(() => ({ client: null as unknown }));
 vi.mock("@/lib/supabase/client", () => ({ createClient: () => holder.client }));
+const clearMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/complaints", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/complaints")>()),
+  clearComplaintThread: clearMock,
+}));
 
 function makeComplaint(overrides: Partial<ComplaintMessageRow> = {}): ComplaintMessageRow {
   return {
@@ -20,9 +25,10 @@ function makeComplaint(overrides: Partial<ComplaintMessageRow> = {}): ComplaintM
 }
 
 /** Fake of the supabase-js surface SupportChat touches: channels, complaint_messages select/insert, storage upload/createSignedUrls. */
-function createFake(opts: { rows?: ComplaintMessageRow[] } = {}) {
+function createFake(opts: { rows?: ComplaintMessageRow[]; resolved?: boolean } = {}) {
   const state = {
     rows: opts.rows ?? [],
+    resolved: opts.resolved ?? false,
     selects: 0,
     inserts: [] as { table: string; values: Record<string, unknown> }[],
     uploads: [] as { bucket: string; path: string; contentType?: string }[],
@@ -41,6 +47,8 @@ function createFake(opts: { rows?: ComplaintMessageRow[] } = {}) {
     from: (table: string) => ({
       select: () => ({
         eq: () => ({
+          // complaint_resolutions lookup (isComplaintResolved)
+          maybeSingle: async () => ({ data: state.resolved ? { order_id: "order-1" } : null, error: null }),
           order: () => ({
             limit: async () => {
               state.selects++;
@@ -95,6 +103,7 @@ describe("SupportChat — live via Realtime", () => {
     expect(channel.name).toBe("complaint_messages:order-1");
     expect(channel.handlers.map((h) => h.filter)).toEqual([
       { event: "INSERT", schema: "public", table: "complaint_messages", filter: "order_id=eq.order-1" },
+      { event: "INSERT", schema: "public", table: "complaint_resolutions", filter: "order_id=eq.order-1" },
     ]);
   });
 
@@ -182,6 +191,81 @@ describe("SupportChat — live via Realtime", () => {
     const img = await screen.findByTestId("support-photo");
     expect(img).toHaveAttribute("src", "https://signed.example/order-1/customer-1/x.jpg");
     expect(fake.state.signed).toEqual([{ bucket: "complaint-photos", paths: ["order-1/customer-1/x.jpg"] }]);
+  });
+
+  it("hides Clear chat while the thread is empty", async () => {
+    await mountChat(createFake());
+    expect(screen.queryByRole("button", { name: "Clear chat" })).not.toBeInTheDocument();
+  });
+
+  it("Clear chat does nothing unless the customer confirms", async () => {
+    clearMock.mockReset();
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirm);
+    const fake = createFake({ rows: [makeComplaint()] });
+    await mountChat(fake);
+    await screen.findByTestId("support-message");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Clear chat" }));
+    });
+    expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/can't be undone/));
+    expect(clearMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId("support-message")).toBeInTheDocument();
+  });
+
+  it("Clear chat, once confirmed, deletes the thread and empties the list", async () => {
+    clearMock.mockReset().mockResolvedValue({ ok: true });
+    vi.stubGlobal("confirm", () => true);
+    const fake = createFake({ rows: [makeComplaint(), makeComplaint({ id: "p", body: "", photo_path: "order-1/customer-1/x.jpg" })] });
+    await mountChat(fake);
+    await screen.findAllByTestId("support-message");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Clear chat" }));
+    });
+    expect(clearMock).toHaveBeenCalledWith(fake.client, "order-1");
+    expect(screen.queryByTestId("support-message")).not.toBeInTheDocument();
+    expect(screen.getByText(/No messages yet/)).toBeInTheDocument();
+  });
+
+  it("hides Clear chat on a thread HQ has already resolved", async () => {
+    await mountChat(createFake({ rows: [makeComplaint()], resolved: true }));
+    await screen.findByTestId("support-message");
+    expect(await screen.findByTestId("support-resolved")).toHaveTextContent(/kept as a record/);
+    expect(screen.queryByRole("button", { name: "Clear chat" })).not.toBeInTheDocument();
+  });
+
+  it("hides Clear chat live when HQ resolves the thread while it's open", async () => {
+    const fake = createFake({ rows: [makeComplaint()] });
+    const channel = await mountChat(fake);
+    expect(await screen.findByRole("button", { name: "Clear chat" })).toBeInTheDocument();
+    act(() => {
+      channel.emit("INSERT", "complaint_resolutions", { order_id: "order-1", resolved_by: "admin-1", resolved_at: "2026-09-25T10:00:00.000Z" });
+    });
+    expect(screen.queryByRole("button", { name: "Clear chat" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("support-resolved")).toBeInTheDocument();
+  });
+
+  it("hides Clear chat if the delete is refused because HQ resolved it meanwhile", async () => {
+    clearMock.mockReset().mockResolvedValue({ ok: false, message: "Kopi Boy Support has marked this chat resolved", resolved: true });
+    vi.stubGlobal("confirm", () => true);
+    await mountChat(createFake({ rows: [makeComplaint()] }));
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "Clear chat" }));
+    });
+    expect(screen.queryByRole("button", { name: "Clear chat" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("support-message")).toBeInTheDocument();
+  });
+
+  it("keeps the thread and shows why if clearing fails", async () => {
+    clearMock.mockReset().mockResolvedValue({ ok: false, message: "Couldn't delete the photos — nothing else was removed. Please try again." });
+    vi.stubGlobal("confirm", () => true);
+    await mountChat(createFake({ rows: [makeComplaint()] }));
+    await screen.findByTestId("support-message");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Clear chat" }));
+    });
+    expect(screen.getByText(/Couldn't delete the photos/)).toBeInTheDocument();
+    expect(screen.getByTestId("support-message")).toBeInTheDocument();
   });
 
   it("tears down the channel on unmount", async () => {
