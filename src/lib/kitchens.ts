@@ -9,6 +9,8 @@ interface KitchenRow {
   neighbourhood: string;
   description: string | null;
   hero_image: string | null;
+  /** Null for home cooks, and until the Partner app's schema section 27 is run (select("*") just omits it). */
+  business_uen?: string | null;
   latitude: number | null;
   longitude: number | null;
 }
@@ -97,6 +99,7 @@ export async function getLiveMerchants(): Promise<Merchant[]> {
       cuisineType: k.cuisine_type,
       menuHighlights: kitchenItems.slice(0, 2).map((i) => ({ name: i.name, price: i.price })),
       isNew: true,
+      businessUen: k.business_uen ?? null,
     };
   });
 }

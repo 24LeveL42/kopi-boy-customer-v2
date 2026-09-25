@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { MenuItemRow } from "@/components/MenuItemRow";
+import { CategoryPill, RegisteredBadge } from "@/components/KitchenBadges";
+import type { MerchantCategory } from "@/lib/types";
 
 /**
  * Merchant profile route — updated for Feature #005 to render the real menu
@@ -22,7 +24,15 @@ export default async function MerchantPage({
     .select("*")
     .eq("id", id)
     .eq("is_live", true)
-    .maybeSingle();
+    .maybeSingle<{
+      id: string;
+      business_name: string;
+      category: MerchantCategory;
+      cuisine_type: string;
+      neighbourhood: string;
+      description: string | null;
+      business_uen?: string | null;
+    }>();
 
   if (!kitchen) notFound();
 
@@ -46,6 +56,10 @@ export default async function MerchantPage({
           &larr; Back to marketplace
         </Link>
         <h1 className="mt-4 font-display text-2xl font-semibold">{kitchen.business_name}</h1>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <CategoryPill category={kitchen.category} />
+          {kitchen.business_uen && <RegisteredBadge uen={kitchen.business_uen} showUen />}
+        </div>
         <p className="mt-1" style={{ color: "var(--kb-on-navy-soft)" }}>
           {CUISINE_LABEL[kitchen.cuisine_type] ?? kitchen.cuisine_type} &middot; {kitchen.neighbourhood}
         </p>

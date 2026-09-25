@@ -1,26 +1,9 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Merchant } from "@/lib/types";
-
-const CATEGORY_LABEL: Record<Merchant["category"], string> = {
-  "home-cook": "Home Cook",
-  hawker: "Hawker",
-  bakery: "Bakery",
-  "bulk-orders": "Vegetarian",
-  drinks: "Desserts & Drinks",
-};
-
-const CATEGORY_PILL: Record<Merchant["category"], { bg: string; fg: string }> = {
-  "home-cook": { bg: "var(--kb-cat-homecook-bg)", fg: "var(--kb-cat-homecook-fg)" },
-  hawker: { bg: "var(--kb-cat-hawker-bg)", fg: "var(--kb-cat-hawker-fg)" },
-  bakery: { bg: "var(--kb-cat-bakery-bg)", fg: "var(--kb-cat-bakery-fg)" },
-  "bulk-orders": { bg: "var(--kb-cat-bulkorders-bg)", fg: "var(--kb-cat-bulkorders-fg)" },
-  drinks: { bg: "var(--kb-cat-drinks-bg)", fg: "var(--kb-cat-drinks-fg)" },
-};
+import { CategoryPill, RegisteredBadge } from "./KitchenBadges";
 
 export function MerchantCard({ merchant }: { merchant: Merchant }) {
-  const pill = CATEGORY_PILL[merchant.category];
-
   return (
     <Link
       href={`/merchant/${merchant.id}`}
@@ -66,12 +49,10 @@ export function MerchantCard({ merchant }: { merchant: Merchant }) {
           </div>
           <div className="min-w-0">
             <h3 className="truncate text-[15px] font-semibold leading-tight">{merchant.name}</h3>
-            <span
-              className="mt-0.5 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold"
-              style={{ background: pill.bg, color: pill.fg }}
-            >
-              {CATEGORY_LABEL[merchant.category]}
-            </span>
+            <div className="mt-0.5 flex flex-wrap items-center gap-1">
+              <CategoryPill category={merchant.category} />
+              {merchant.businessUen && <RegisteredBadge uen={merchant.businessUen} />}
+            </div>
           </div>
         </div>
 
