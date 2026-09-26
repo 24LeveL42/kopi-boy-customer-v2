@@ -1412,3 +1412,45 @@ create policy "Customer can delete an unresolved thread's photos"
 -- Replaced by complaint_thread_clearable (only exists if an earlier draft of
 -- this section ran); the policies that used it were dropped above.
 drop function if exists public.complaint_thread_customer(uuid);
+
+-- ----------------------------------------------------------------------------
+-- 30. KITCHENS / MENU ITEMS — role-gated policies are signed-in only
+-- Logged-out visitors hit "permission denied for table profiles" on the home
+-- page. Postgres checks every select policy on a table, including the
+-- admin one, and anon has no grant on profiles (the Table Grants block
+-- gives it to authenticated only). Scoping the cook/admin policies `to authenticated`
+-- means anon never checks them. The two "Anyone can read ..." policies
+-- stay open to anon so logged-out browsing keeps working. Recreated rather
+-- than altered so a live database whose copy of a policy drifted (e.g. an
+-- inline profiles subquery instead of has_role) is reset to this definition.
+-- ----------------------------------------------------------------------------
+drop policy if exists "Cooks can read their own kitchen" on public.kitchens;
+create policy "Cooks can read their own kitchen"
+  on public.kitchens for select
+  to authenticated
+  using (auth.uid() = id);
+
+drop policy if exists "Cooks can insert their own kitchen" on public.kitchens;
+create policy "Cooks can insert their own kitchen"
+  on public.kitchens for insert
+  to authenticated
+  with check (auth.uid() = id and public.has_role('cook'));
+
+drop policy if exists "Cooks can update their own kitchen" on public.kitchens;
+create policy "Cooks can update their own kitchen"
+  on public.kitchens for update
+  to authenticated
+  using (auth.uid() = id);
+
+drop policy if exists "Admins can read every kitchen" on public.kitchens;
+create policy "Admins can read every kitchen"
+  on public.kitchens for select
+  to authenticated
+  using (public.has_role('admin'));
+
+drop policy if exists "Cooks can manage their own menu items" on public.menu_items;
+create policy "Cooks can manage their own menu items"
+  on public.menu_items for all
+  to authenticated
+  using (auth.uid() = kitchen_id)
+  with check (auth.uid() = kitchen_id);
