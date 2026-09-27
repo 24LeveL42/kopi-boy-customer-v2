@@ -8,6 +8,7 @@ import { placeOrder } from "@/lib/order-actions";
 import { useCustomerLocation } from "@/lib/use-customer-location";
 import { haversineDistanceKm, estimateDeliveryFee } from "@/lib/distance";
 import { createClient } from "@/lib/supabase/client";
+import { Spinner } from "@/components/Spinner";
 
 export function CartView({ isSignedIn }: { isSignedIn: boolean }) {
   const { cart, setQuantity, removeItem, subtotal, clearCart } = useCart();
@@ -204,9 +205,10 @@ export function CartView({ isSignedIn }: { isSignedIn: boolean }) {
             <button
               onClick={handlePlaceOrder}
               disabled={pending}
-              className="mt-5 w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-60"
+              className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-60"
               style={{ background: "linear-gradient(90deg, var(--kb-purple) 0%, var(--kb-green) 100%)" }}
             >
+              {pending && <Spinner />}
               {pending ? "Placing order…" : "Place order"}
             </button>
             {error && (

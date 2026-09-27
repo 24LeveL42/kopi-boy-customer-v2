@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { CameraIcon } from "@/components/CameraIcon";
 import { ChatBubble } from "@/components/ChatBubble";
+import { Spinner } from "@/components/Spinner";
 import { mergeMessages, MESSAGE_BODY_MAX_LENGTH, MESSAGE_FETCH_LIMIT } from "@/lib/messages";
 import {
   COMPLAINT_PHOTO_BUCKET,
@@ -45,9 +46,9 @@ export function SupportChat({ orderId, currentUserId }: { orderId: string; curre
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const [draft, setDraft] = useState("");
   const [photo, setPhoto] = useState<File | null>(null);
-  const [sending, setSending] = useState(false);
+  const [sending, startSending] = useTransition();
   const [sendError, setSendError] = useState<string | null>(null);
-  const [clearing, setClearing] = useState(false);
+  const [clearing, startClearing] = useTransition();
   const [clearError, setClearError] = useState<string | null>(null);
   // null = not known (still loading, or the check failed) — Clear chat stays hidden.
   const [resolved, setResolved] = useState<boolean | null>(null);
@@ -157,40 +158,39 @@ export function SupportChat({ orderId, currentUserId }: { orderId: string; curre
     setPhoto(file);
   }
 
-  async function handleSend(e: React.FormEvent) {
+  function handleSend(e: React.FormEvent) {
     e.preventDefault();
     const body = normalizeComplaintBody(draft, photo !== null, MESSAGE_BODY_MAX_LENGTH);
     if (body === null || sending) return;
-    setSending(true);
     setSendError(null);
-    const supabase = createClient();
+    startSending(async () => {
+      const supabase = createClient();
 
-    let photoPath: string | null = null;
-    if (photo) {
-      photoPath = complaintPhotoPath(orderId, currentUserId, photo.name, crypto.randomUUID());
-      const { error: uploadError } = await supabase.storage
-        .from(COMPLAINT_PHOTO_BUCKET)
-        .upload(photoPath, photo, { contentType: photo.type, upsert: false });
-      if (uploadError) {
-        setSending(false);
-        setSendError("Photo couldn't be uploaded — please try again.");
+      let photoPath: string | null = null;
+      if (photo) {
+        photoPath = complaintPhotoPath(orderId, currentUserId, photo.name, crypto.randomUUID());
+        const { error: uploadError } = await supabase.storage
+          .from(COMPLAINT_PHOTO_BUCKET)
+          .upload(photoPath, photo, { contentType: photo.type, upsert: false });
+        if (uploadError) {
+          setSendError("Photo couldn't be uploaded — please try again.");
+          return;
+        }
+      }
+
+      const { error } = await supabase
+        .from("complaint_messages")
+        .insert({ order_id: orderId, sender_id: currentUserId, body, photo_path: photoPath });
+      if (error) {
+        setSendError("Message couldn't be sent — please try again.");
         return;
       }
-    }
-
-    const { error } = await supabase
-      .from("complaint_messages")
-      .insert({ order_id: orderId, sender_id: currentUserId, body, photo_path: photoPath });
-    setSending(false);
-    if (error) {
-      setSendError("Message couldn't be sent — please try again.");
-      return;
-    }
-    setDraft("");
-    setPhoto(null);
+      setDraft("");
+      setPhoto(null);
+    });
   }
 
-  async function handleClear() {
+  function handleClear() {
     if (clearing) return;
     // Confirmed like the cart's "Clear all" — but this one can't be undone and HQ loses the thread too.
     if (
@@ -199,18 +199,18 @@ export function SupportChat({ orderId, currentUserId }: { orderId: string; curre
       )
     )
       return;
-    setClearing(true);
     setClearError(null);
-    const result = await clearComplaintThread(createClient(), orderId);
-    setClearing(false);
-    if (!result.ok) {
-      if (result.resolved) setResolved(true);
-      setClearError(result.message);
-      return;
-    }
-    applyMessages(() => []);
-    setPhotoUrls({});
-    requestedPathsRef.current = new Set();
+    startClearing(async () => {
+      const result = await clearComplaintThread(createClient(), orderId);
+      if (!result.ok) {
+        if (result.resolved) setResolved(true);
+        setClearError(result.message);
+        return;
+      }
+      applyMessages(() => []);
+      setPhotoUrls({});
+      requestedPathsRef.current = new Set();
+    });
   }
 
   const canSend = !sending && normalizeComplaintBody(draft, photo !== null, MESSAGE_BODY_MAX_LENGTH) !== null;
@@ -226,9 +226,10 @@ export function SupportChat({ orderId, currentUserId }: { orderId: string; curre
             type="button"
             onClick={handleClear}
             disabled={clearing}
-            className="shrink-0 text-xs font-semibold disabled:opacity-50"
+            className="flex shrink-0 items-center gap-1 text-xs font-semibold disabled:opacity-50"
             style={{ color: "var(--kb-danger)" }}
           >
+            {clearing && <Spinner size={12} />}
             {clearing ? "Clearing…" : "Clear chat"}
           </button>
         )}
@@ -285,7 +286,7 @@ export function SupportChat({ orderId, currentUserId }: { orderId: string; curre
       {photo && (
         <div className="flex items-center justify-between gap-2 border-t px-3 py-1.5 text-xs" style={{ borderColor: "var(--kb-navy-line)", color: "var(--kb-ink)" }}>
           <span className="truncate">📎 {photo.name}</span>
-          <button type="button" onClick={() => setPhoto(null)} className="shrink-0 font-semibold" style={{ color: "var(--kb-danger)" }}>
+          <button type="button" onClick={() => setPhoto(null)} disabled={sending} className="shrink-0 font-semibold disabled:opacity-50" style={{ color: "var(--kb-danger)" }}>
             Remove
           </button>
         </div>
@@ -304,8 +305,9 @@ export function SupportChat({ orderId, currentUserId }: { orderId: string; curre
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
+          disabled={sending}
           aria-label="Attach a photo"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white disabled:opacity-50"
           style={{ color: "var(--kb-ink-soft)" }}
         >
           <CameraIcon />
@@ -326,9 +328,10 @@ export function SupportChat({ orderId, currentUserId }: { orderId: string; curre
         <button
           type="submit"
           disabled={!canSend}
-          className="shrink-0 rounded-full px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+          className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
           style={{ background: "var(--kb-green-deep)" }}
         >
+          {sending && <Spinner />}
           {sending ? "Sending…" : "Send"}
         </button>
       </form>

@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { CameraIcon } from "@/components/CameraIcon";
 import { ChatBubble } from "@/components/ChatBubble";
+import { Spinner } from "@/components/Spinner";
 import {
   mergeMessages,
   normalizeMessageBody,
@@ -52,7 +53,7 @@ export function OrderChat({
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [draft, setDraft] = useState("");
   const [photo, setPhoto] = useState<File | null>(null);
-  const [sending, setSending] = useState(false);
+  const [sending, startSending] = useTransition();
   const [sendError, setSendError] = useState<string | null>(null);
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const messagesRef = useRef<MessageRow[]>([]);
@@ -153,37 +154,36 @@ export function OrderChat({
     setPhoto(file);
   }
 
-  async function handleSend(e: React.FormEvent) {
+  function handleSend(e: React.FormEvent) {
     e.preventDefault();
     const body = normalizeMessageBody(draft, photo !== null);
     if (body === null || sending) return;
-    setSending(true);
     setSendError(null);
-    const supabase = createClient();
+    startSending(async () => {
+      const supabase = createClient();
 
-    let photoPath: string | null = null;
-    if (photo) {
-      photoPath = orderChatPhotoPath(orderId, currentUserId, photo.name, crypto.randomUUID());
-      const { error: uploadError } = await supabase.storage
-        .from(ORDER_CHAT_PHOTO_BUCKET)
-        .upload(photoPath, photo, { contentType: photo.type, upsert: false });
-      if (uploadError) {
-        setSending(false);
-        setSendError("Photo couldn't be uploaded — this chat may have closed.");
+      let photoPath: string | null = null;
+      if (photo) {
+        photoPath = orderChatPhotoPath(orderId, currentUserId, photo.name, crypto.randomUUID());
+        const { error: uploadError } = await supabase.storage
+          .from(ORDER_CHAT_PHOTO_BUCKET)
+          .upload(photoPath, photo, { contentType: photo.type, upsert: false });
+        if (uploadError) {
+          setSendError("Photo couldn't be uploaded — this chat may have closed.");
+          return;
+        }
+      }
+
+      const { error } = await supabase
+        .from("messages")
+        .insert({ order_id: orderId, sender_id: currentUserId, body, photo_path: photoPath });
+      if (error) {
+        setSendError("Message couldn't be sent — this chat may have closed.");
         return;
       }
-    }
-
-    const { error } = await supabase
-      .from("messages")
-      .insert({ order_id: orderId, sender_id: currentUserId, body, photo_path: photoPath });
-    setSending(false);
-    if (error) {
-      setSendError("Message couldn't be sent — this chat may have closed.");
-      return;
-    }
-    setDraft("");
-    setPhoto(null);
+      setDraft("");
+      setPhoto(null);
+    });
   }
 
   const canSend = !sending && normalizeMessageBody(draft, photo !== null) !== null;
@@ -235,7 +235,7 @@ export function OrderChat({
       {photo && (
         <div className="flex items-center justify-between gap-2 border-t px-3 py-1.5 text-xs" style={{ borderColor: "var(--kb-navy-line)", color: "var(--kb-ink)" }}>
           <span className="truncate">📎 {photo.name}</span>
-          <button type="button" onClick={() => setPhoto(null)} className="shrink-0 font-semibold" style={{ color: "var(--kb-danger)" }}>
+          <button type="button" onClick={() => setPhoto(null)} disabled={sending} className="shrink-0 font-semibold disabled:opacity-50" style={{ color: "var(--kb-danger)" }}>
             Remove
           </button>
         </div>
@@ -254,8 +254,9 @@ export function OrderChat({
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
+          disabled={sending}
           aria-label="Attach a photo"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white disabled:opacity-50"
           style={{ color: "var(--kb-ink-soft)" }}
         >
           <CameraIcon />
@@ -276,9 +277,10 @@ export function OrderChat({
         <button
           type="submit"
           disabled={!canSend}
-          className="shrink-0 rounded-full px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+          className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
           style={{ background: "var(--kb-green-deep)" }}
         >
+          {sending && <Spinner />}
           {sending ? "Sending…" : "Send"}
         </button>
       </form>

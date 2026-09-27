@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { cancelOrder } from "@/lib/order-actions";
+import { Spinner } from "@/components/Spinner";
 
 /**
  * Invokes cancelOrder() (a Server Action) via startTransition, per this
@@ -53,9 +54,10 @@ export function CancelOrderButton({ orderId }: { orderId: string }) {
       <button
         onClick={handleCancel}
         disabled={isPending}
-        className="w-full rounded-xl border py-2.5 text-sm font-semibold disabled:opacity-60"
+        className="flex w-full items-center justify-center gap-2 rounded-xl border py-2.5 text-sm font-semibold disabled:opacity-60"
         style={{ borderColor: "var(--kb-danger)", color: "var(--kb-danger)" }}
       >
+        {isPending && <Spinner />}
         {isPending ? "Cancelling…" : "Cancel order"}
       </button>
     </div>
