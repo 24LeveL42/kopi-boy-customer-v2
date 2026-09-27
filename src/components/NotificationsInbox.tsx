@@ -1,6 +1,9 @@
 "use client";
 
+import { useTransition } from "react";
 import Link from "next/link";
+import { LoadingStatus, Skeleton } from "@/components/Skeleton";
+import { Spinner } from "@/components/Spinner";
 import { useNotifications } from "@/lib/notifications-context";
 import { formatRelativeTime, notificationHref, type NotificationRow } from "@/lib/notifications";
 
@@ -11,6 +14,8 @@ import { formatRelativeTime, notificationHref, type NotificationRow } from "@/li
  */
 export function NotificationsInbox() {
   const { status, notifications, unreadCount, markRead, markAllRead, reload } = useNotifications();
+  // A retry leaves status at "error" until it succeeds, so the button carries its own pending state.
+  const [retrying, startRetry] = useTransition();
 
   return (
     <div className="min-h-screen px-4 py-8 sm:px-6" style={{ background: "var(--kb-navy)", color: "var(--kb-on-navy)" }}>
@@ -30,9 +35,18 @@ export function NotificationsInbox() {
         </div>
 
         {(status === "idle" || status === "loading") && (
-          <p className="mt-6 text-sm" style={{ color: "var(--kb-on-navy-soft)" }}>
-            Loading…
-          </p>
+          <div className="mt-4 space-y-2">
+            <LoadingStatus label="Loading your notifications…" />
+            {Array.from({ length: 4 }, (_, i) => (
+              <div key={i} className="flex items-start gap-2 rounded-2xl bg-white p-3 shadow-sm">
+                <Skeleton tone="card" className="mt-1.5 h-2 w-2 rounded-full" />
+                <div className="flex-1 space-y-1.5">
+                  <Skeleton tone="card" className="h-4 w-2/3" />
+                  <Skeleton tone="card" className="h-3 w-full" />
+                </div>
+              </div>
+            ))}
+          </div>
         )}
 
         {status === "signed-out" && (
@@ -53,11 +67,13 @@ export function NotificationsInbox() {
             <p style={{ color: "var(--kb-danger)" }}>Couldn&apos;t load your notifications.</p>
             <button
               type="button"
-              onClick={() => void reload()}
-              className="mt-4 w-full rounded-xl py-2.5 text-sm font-semibold"
+              onClick={() => startRetry(reload)}
+              disabled={retrying}
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold disabled:opacity-60"
               style={{ background: "var(--kb-cream)", color: "var(--kb-ink)" }}
             >
-              Try again
+              {retrying && <Spinner />}
+              {retrying ? "Trying again…" : "Try again"}
             </button>
           </div>
         )}

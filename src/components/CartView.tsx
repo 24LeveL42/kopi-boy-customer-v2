@@ -156,9 +156,10 @@ export function CartView({ isSignedIn }: { isSignedIn: boolean }) {
                 type="button"
                 onClick={requestLocation}
                 disabled={locationStatus === "locating"}
-                className="w-full rounded-xl border px-3 py-2.5 text-sm font-medium disabled:opacity-60"
+                className="flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium disabled:opacity-60"
                 style={{ borderColor: "#E5E7EB", color: "var(--kb-purple)" }}
               >
+                {locationStatus === "locating" && <Spinner />}
                 {locationStatus === "locating" ? "Getting your location…" : "Use my current location"}
               </button>
               {locationStatus === "denied" && (
