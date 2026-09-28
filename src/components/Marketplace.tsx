@@ -27,7 +27,7 @@ export function filterMerchants(
     return (
       m.name.toLowerCase().includes(q) ||
       m.cuisine.toLowerCase().includes(q) ||
-      m.neighbourhood.toLowerCase().includes(q) ||
+      (m.area?.toLowerCase().includes(q) ?? false) ||
       m.menuHighlights.some((item) => item.name.toLowerCase().includes(q))
     );
   });

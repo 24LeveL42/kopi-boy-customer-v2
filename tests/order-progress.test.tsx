@@ -37,6 +37,7 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/components/OrderRealtimeRefresher", () => ({ OrderRealtimeRefresher: () => null }));
 vi.mock("@/components/CancelOrderButton", () => ({ CancelOrderButton: () => null }));
 vi.mock("@/components/OrderChat", () => ({ OrderChat: () => null }));
+vi.mock("@/components/RateOrder", () => ({ RateOrder: () => null, OrderRating: () => null }));
 vi.mock("next/navigation", () => ({ notFound: () => { throw new Error("notFound"); } }));
 
 function order(overrides: Partial<OrderRow> = {}): OrderRow {

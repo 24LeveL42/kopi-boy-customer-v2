@@ -9,7 +9,7 @@ function merchant(overrides: Partial<Merchant> = {}): Merchant {
     name: "Ah Seng Char Kway Teow",
     category: "hawker",
     cuisine: "Chinese",
-    neighbourhood: "Toa Payoh",
+    area: "Postal sector 31",
     blurb: "",
     rating: 0,
     ratingCount: 0,
@@ -49,5 +49,30 @@ describe("MerchantCard — category + registered-business badges", () => {
     const { container } = render(<MerchantCard merchant={merchant({ category: "hawker" })} />);
     expect(within(container).getByText("Hawker")).toBeInTheDocument();
     expect(within(container).queryByTestId("registered-badge")).toBeNull();
+  });
+
+  it("shows the average and count once a kitchen has ratings", () => {
+    const { container } = render(<MerchantCard merchant={merchant({ rating: 4.6, ratingCount: 23 })} />);
+    expect(within(container).getByTestId("rating-summary")).toHaveTextContent("4.6 (23 ratings)");
+  });
+
+  it("says No ratings yet instead of 0.0 for an unrated kitchen", () => {
+    const { container } = render(<MerchantCard merchant={merchant({ rating: 0, ratingCount: 0 })} />);
+    expect(within(container).getByTestId("rating-summary")).toHaveTextContent("No ratings yet");
+    expect(container).not.toHaveTextContent("0.0");
+  });
+
+  it("uses the singular for a single rating", () => {
+    const { container } = render(<MerchantCard merchant={merchant({ rating: 5, ratingCount: 1 })} />);
+    expect(within(container).getByTestId("rating-summary")).toHaveTextContent("5.0 (1 rating)");
+  });
+
+  it("shows the postal sector when there is one, and just the distance when there isn't", () => {
+    const withArea = render(<MerchantCard merchant={merchant({ area: "Postal sector 31" })} />);
+    expect(withArea.container).toHaveTextContent("Postal sector 31 · Distance unavailable");
+    cleanup();
+    const { container } = render(<MerchantCard merchant={merchant({ area: null })} />);
+    expect(container).toHaveTextContent("Distance unavailable");
+    expect(container).not.toHaveTextContent("null");
   });
 });

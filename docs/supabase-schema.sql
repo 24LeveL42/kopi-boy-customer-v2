@@ -1454,3 +1454,104 @@ create policy "Cooks can manage their own menu items"
   to authenticated
   using (auth.uid() = kitchen_id)
   with check (auth.uid() = kitchen_id);
+
+
+-- ============================================================================
+-- KOPI BOY 2.0 — Order ratings (1-5 stars, one per order)
+-- Run this ONCE, after every script above, in the same Supabase project's
+-- SQL Editor. Safe to re-run (idempotent).
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- 31. RATINGS
+-- One row per delivered order (order_id unique — a customer rates an order
+-- once, and can't change or delete it afterwards: no update/delete grant).
+-- kitchen_id is stored alongside rather than joined through orders so the
+-- per-kitchen average below doesn't need to read orders (which RLS hides from
+-- everyone but the customer and the cook).
+-- ----------------------------------------------------------------------------
+create table if not exists public.ratings (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null unique references public.orders(id) on delete cascade,
+  customer_id uuid not null references public.profiles(id) on delete cascade,
+  kitchen_id uuid not null references public.kitchens(id) on delete cascade,
+  stars smallint not null check (stars between 1 and 5),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists ratings_kitchen_idx on public.ratings (kitchen_id);
+
+alter table public.ratings enable row level security;
+
+revoke all on public.ratings from anon, authenticated;
+grant select, insert on public.ratings to authenticated;
+
+-- Is the caller allowed to rate this order, for this kitchen? Same shape as
+-- order_chat_participant() / complaint_thread_participant(): SECURITY DEFINER
+-- so the check doesn't depend on the caller's own RLS on orders /
+-- delivery_requests. True only for the order's own customer, only once a
+-- delivery_request for it is 'completed' (the same "Delivered" the order page
+-- shows), never for a cancelled/rejected order, and only when p_kitchen_id is
+-- the order's real kitchen — so a rating can't be pinned on another kitchen.
+create or replace function public.order_ratable(p_order_id uuid, p_kitchen_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.orders o
+    where o.id = p_order_id
+      and o.customer_id = auth.uid()
+      and o.kitchen_id = p_kitchen_id
+      and o.order_status not in ('cancelled', 'rejected')
+      and exists (
+        select 1 from public.delivery_requests d
+        where d.order_id = o.id and d.status = 'completed'
+      )
+  );
+$$;
+
+revoke all on function public.order_ratable(uuid, uuid) from public, anon;
+grant execute on function public.order_ratable(uuid, uuid) to authenticated;
+
+drop policy if exists "Customers can rate their own delivered orders" on public.ratings;
+create policy "Customers can rate their own delivered orders"
+  on public.ratings for insert
+  to authenticated
+  with check (customer_id = auth.uid() and public.order_ratable(order_id, kitchen_id));
+
+-- Own rows only — the order page uses this to know whether the order has
+-- already been rated. Everyone else sees only the aggregate view below.
+drop policy if exists "Customers can read their own ratings" on public.ratings;
+create policy "Customers can read their own ratings"
+  on public.ratings for select
+  to authenticated
+  using (customer_id = auth.uid());
+
+-- ----------------------------------------------------------------------------
+-- 32. KITCHEN RATING SUMMARY
+-- Average + count per kitchen, computed live on every read (no stored
+-- counter to drift). security_invoker = false on purpose: the view runs as
+-- its owner so it can aggregate every customer's rating, while exposing only
+-- the average and count — never who rated what. Restricted to live kitchens,
+-- the same set the marketplace can already see. A kitchen with no ratings has
+-- no row here; the app treats a missing row as "No ratings yet".
+-- ----------------------------------------------------------------------------
+create or replace view public.kitchen_rating_summary
+with (security_invoker = false) as
+  select r.kitchen_id,
+         round(avg(r.stars)::numeric, 1)::float8 as average,
+         count(*)::int as rating_count
+  from public.ratings r
+  join public.kitchens k on k.id = r.kitchen_id and k.is_live
+  group by r.kitchen_id;
+
+revoke all on public.kitchen_rating_summary from anon, authenticated;
+grant select on public.kitchen_rating_summary to anon, authenticated;
+
+-- Not added to the supabase_realtime publication: the only writer is the
+-- rating customer themselves, whose page refreshes after submitting, and a
+-- marketplace average doesn't need to tick live.

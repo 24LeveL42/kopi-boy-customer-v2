@@ -16,6 +16,7 @@ const db = vi.hoisted(() => ({
   proof: null as { photo_path: string | null } | null,
   messageFilters: [] as [string, unknown][],
   signedPaths: [] as string[],
+  rating: { data: null, error: null } as { data: { stars: number } | null; error: unknown },
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -40,6 +41,7 @@ vi.mock("@/lib/supabase/server", () => ({
         if (table === "orders") return { data: db.order };
         if (table === "kitchens") return { data: { business_name: "Aunty May", paynow_type: null, paynow_value: null } };
         if (table === "messages") return { data: db.proof };
+        if (table === "ratings") return db.rating;
         if (table === "order_items") return { data: [{ id: "i1", name: "Kopi", price: 2, quantity: 1 }] };
         return { data: db.deliveries };
       };
@@ -58,6 +60,10 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/components/OrderRealtimeRefresher", () => ({ OrderRealtimeRefresher: () => null }));
 vi.mock("@/components/CancelOrderButton", () => ({ CancelOrderButton: () => null }));
 vi.mock("@/components/OrderChat", () => ({ OrderChat: () => null }));
+vi.mock("@/components/RateOrder", () => ({
+  RateOrder: () => <div data-testid="rate-order" />,
+  OrderRating: ({ stars }: { stars: number }) => <div data-testid="order-rating">{stars}</div>,
+}));
 vi.mock("next/navigation", () => ({ notFound: () => { throw new Error("notFound"); } }));
 
 function order(overrides: Partial<OrderRow> = {}): OrderRow {
@@ -93,6 +99,7 @@ beforeEach(() => {
   db.proof = null;
   db.messageFilters = [];
   db.signedPaths = [];
+  db.rating = { data: null, error: null };
 });
 afterEach(() => {
   cleanup();
@@ -218,5 +225,44 @@ describe("isTrustedPhotoUrl", () => {
   it("rejects everything when the Supabase URL isn't configured", () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
     expect(isTrustedPhotoUrl(PHOTO)).toBe(false);
+  });
+});
+
+describe("/orders/[id] — rating + totals", () => {
+  it("offers the star picker once delivered and not yet rated", async () => {
+    const { container } = await renderPage(order(), [completed]);
+    expect(within(container).getByTestId("rate-order")).toBeInTheDocument();
+    expect(within(container).queryByTestId("order-rating")).toBeNull();
+  });
+
+  it("shows the saved rating instead of the picker once rated", async () => {
+    db.rating = { data: { stars: 4 }, error: null };
+    const { container } = await renderPage(order(), [completed]);
+    expect(within(container).getByTestId("order-rating")).toHaveTextContent("4");
+    expect(within(container).queryByTestId("rate-order")).toBeNull();
+  });
+
+  it("offers no rating before delivery, or when the ratings table isn't there yet", async () => {
+    const during = await renderPage(order(), [accepted]);
+    expect(within(during.container).queryByTestId("rate-order")).toBeNull();
+    cleanup();
+
+    db.rating = { data: null, error: { code: "PGRST205" } };
+    const noTable = await renderPage(order(), [completed]);
+    expect(within(noTable.container).queryByTestId("rate-order")).toBeNull();
+    expect(within(noTable.container).queryByTestId("order-rating")).toBeNull();
+  });
+
+  it("breaks out Subtotal, the estimated delivery fee and Total", async () => {
+    const { container } = await renderPage(order({ subtotal: 12.5, delivery_fee_estimate: 3 }), [accepted]);
+    expect(container).toHaveTextContent("Subtotal$12.50");
+    expect(container).toHaveTextContent("Estimated delivery fee$3.00");
+    expect(within(container).getByTestId("order-total")).toHaveTextContent("Total$15.50");
+  });
+
+  it("Total equals Subtotal when there's no delivery fee estimate", async () => {
+    const { container } = await renderPage(order({ subtotal: 12.5, delivery_fee_estimate: null }), [accepted]);
+    expect(container).not.toHaveTextContent("Estimated delivery fee");
+    expect(within(container).getByTestId("order-total")).toHaveTextContent("Total$12.50");
   });
 });

@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Merchant } from "@/lib/types";
-import { CategoryPill, RegisteredBadge } from "./KitchenBadges";
+import { CategoryPill, RatingSummary, RegisteredBadge } from "./KitchenBadges";
 
 export function MerchantCard({ merchant }: { merchant: Merchant }) {
   return (
@@ -19,10 +19,10 @@ export function MerchantCard({ merchant }: { merchant: Merchant }) {
         />
         {/* Rating badge, top-right */}
         <span
-          className="absolute right-2 top-2 flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold text-white"
+          className="absolute right-2 top-2 rounded-full px-2 py-1 text-xs font-semibold text-white"
           style={{ background: "rgba(11,27,52,0.72)" }}
         >
-          <StarIcon /> {merchant.rating.toFixed(1)}
+          <RatingSummary rating={merchant.rating} count={merchant.ratingCount} />
         </span>
         {merchant.isNew && (
           <span
@@ -37,7 +37,8 @@ export function MerchantCard({ merchant }: { merchant: Merchant }) {
           className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-white"
           style={{ background: "rgba(11,27,52,0.72)" }}
         >
-          <PinIcon /> {merchant.neighbourhood} &middot;{" "}
+          <PinIcon />
+          {merchant.area && <span>{merchant.area} &middot;{" "}</span>}
           {merchant.distanceKm != null ? `${merchant.distanceKm.toFixed(1)} km` : "Distance unavailable"}
         </span>
       </div>
@@ -72,14 +73,6 @@ export function MerchantCard({ merchant }: { merchant: Merchant }) {
         </div>
       </div>
     </Link>
-  );
-}
-
-function StarIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="var(--kb-warn)" aria-hidden="true">
-      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-    </svg>
   );
 }
 

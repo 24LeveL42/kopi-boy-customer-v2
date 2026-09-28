@@ -9,11 +9,14 @@ import { OrderChat } from "@/components/OrderChat";
 import { ProofOfDeliveryCard } from "@/components/ProofOfDeliveryCard";
 import { ORDER_CHAT_PHOTO_BUCKET, ORDER_CHAT_PHOTO_URL_TTL_SECONDS, type MessageRow } from "@/lib/messages";
 import { SupportChatToggle } from "@/components/SupportChat";
+import { OrderRating, RateOrder } from "@/components/RateOrder";
 
 export interface OrderRow {
   id: string;
   kitchen_id: string;
   subtotal: number;
+  /** Absent on projects where schema section 18 hasn't run; null when no location was shared. */
+  delivery_fee_estimate?: number | null;
   order_status: string;
   payment_status: string;
   preparation_status: string;
@@ -233,6 +236,21 @@ export default async function OrderConfirmationPage({
     }
   }
 
+  // Rating (schema §31): only for a delivered order. `ratingLoaded` is false
+  // if the ratings table doesn't exist yet — then show neither the picker
+  // (it could only fail) nor a rating.
+  const isDelivered = activeDelivery?.status === "completed" && !header.failed;
+  let ratingLoaded = false;
+  let myStars: number | null = null;
+  if (isDelivered && user) {
+    const { data, error } = await supabase.from("ratings").select("stars").eq("order_id", id).maybeSingle<{ stars: number }>();
+    ratingLoaded = !error;
+    myStars = data?.stars ?? null;
+  }
+
+  const deliveryFee = order.delivery_fee_estimate ?? null;
+  const total = order.subtotal + (deliveryFee ?? 0);
+
   const isSettled =
     order.order_status === "cancelled" || order.order_status === "rejected" || activeDelivery?.status === "completed";
 
@@ -277,6 +295,7 @@ export default async function OrderConfirmationPage({
           {proofPhotoUrl && (
             <ProofOfDeliveryCard photoUrl={proofPhotoUrl} deliveredAt={formatTimestamp(activeDelivery?.completed_at ?? null)} />
           )}
+          {ratingLoaded && (myStars != null ? <OrderRating stars={myStars} /> : <RateOrder orderId={order.id} />)}
           {chatVisible && <OrderChat orderId={order.id} currentUserId={user!.id} riderName={rider?.full_name ?? null} />}
           {/* A cancelled/rejected order will never be accepted or paid for, so
               "pay via PayNow once accepted" would be wrong — hide the line. */}
@@ -299,12 +318,26 @@ export default async function OrderConfirmationPage({
             ))}
           </div>
 
-          <div
-            className="mt-4 flex justify-between border-t pt-3 font-semibold"
-            style={{ borderColor: "var(--kb-cream)" }}
-          >
-            <span>Total</span>
-            <span>${order.subtotal.toFixed(2)}</span>
+          {/* Same labels/styling as the cart page (CartView). */}
+          <div className="mt-4 space-y-2 border-t pt-3 text-left" style={{ borderColor: "var(--kb-cream)" }}>
+            <div className="flex items-center justify-between">
+              <span className="font-semibold">Subtotal</span>
+              <span className="font-semibold">${order.subtotal.toFixed(2)}</span>
+            </div>
+            {deliveryFee != null && (
+              <div className="flex items-center justify-between text-sm" style={{ color: "var(--kb-ink-soft)" }}>
+                <span>Estimated delivery fee</span>
+                <span>${deliveryFee.toFixed(2)}</span>
+              </div>
+            )}
+            <div
+              data-testid="order-total"
+              className="flex items-center justify-between border-t pt-2 font-bold"
+              style={{ borderColor: "var(--kb-cream)" }}
+            >
+              <span>Total</span>
+              <span>${total.toFixed(2)}</span>
+            </div>
           </div>
 
           {/* Unlike the rider chat there's no window: a complaint can be

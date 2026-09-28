@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { SignOutButton } from "./SignOutButton";
 
-export function TopBar({ location = "Singapore" }: { location?: string }) {
+export function TopBar({ location = "Nearby" }: { location?: string }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (

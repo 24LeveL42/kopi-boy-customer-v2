@@ -9,7 +9,7 @@ const merchants: Merchant[] = [
     category: "home-cook",
     cuisine: "South Indian, home-cooked",
     cuisineType: "indian",
-    neighbourhood: "Toa Payoh",
+    area: "Postal sector 31",
     blurb: "",
     rating: 4.9,
     ratingCount: 10,
@@ -28,7 +28,7 @@ const merchants: Merchant[] = [
     category: "hawker",
     cuisine: "Chinese, claypot",
     cuisineType: "chinese",
-    neighbourhood: "Ang Mo Kio",
+    area: "Postal sector 56",
     blurb: "",
     rating: 4.7,
     ratingCount: 5,
@@ -47,7 +47,7 @@ const merchants: Merchant[] = [
     category: "home-cook",
     cuisine: "Malay, home-cooked",
     cuisineType: "halal",
-    neighbourhood: "Bedok",
+    area: "Postal sector 46",
     blurb: "",
     rating: 4.8,
     ratingCount: 8,
@@ -79,8 +79,8 @@ describe("filterMerchants", () => {
     expect(result[0].id).toBe("1");
   });
 
-  it("matches on neighbourhood", () => {
-    const result = filterMerchants(merchants, "ang mo kio", "all");
+  it("matches on postal sector", () => {
+    const result = filterMerchants(merchants, "sector 56", "all");
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe("2");
   });

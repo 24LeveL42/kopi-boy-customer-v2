@@ -49,6 +49,33 @@ export function RegisteredBadge({ uen, showUen = false }: { uen: string; showUen
   );
 }
 
+/**
+ * "4.6 (23 ratings)", or "No ratings yet" for a kitchen nobody has rated —
+ * never a misleading 0.0. <RatingSummary> adds the star in front.
+ */
+export function formatRatingSummary(rating: number, count: number): string {
+  if (count <= 0) return "No ratings yet";
+  return `${rating.toFixed(1)} (${count} ${count === 1 ? "rating" : "ratings"})`;
+}
+
+/** "★ 4.6 (23 ratings)" / "No ratings yet" — shared by the marketplace card and the kitchen page. */
+export function RatingSummary({ rating, count }: { rating: number; count: number }) {
+  return (
+    <span data-testid="rating-summary" className="inline-flex items-center gap-1">
+      {count > 0 && <StarIcon />}
+      {formatRatingSummary(rating, count)}
+    </span>
+  );
+}
+
+function StarIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="var(--kb-warn)" aria-hidden="true">
+      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+    </svg>
+  );
+}
+
 function CheckIcon() {
   return (
     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

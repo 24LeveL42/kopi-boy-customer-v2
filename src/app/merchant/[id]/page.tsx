@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { MenuItemRow } from "@/components/MenuItemRow";
-import { CategoryPill, RegisteredBadge } from "@/components/KitchenBadges";
+import { CategoryPill, RatingSummary, RegisteredBadge } from "@/components/KitchenBadges";
+import { formatKitchenArea, selectKitchens } from "@/lib/kitchens";
 import type { MerchantCategory } from "@/lib/types";
 
 /**
@@ -19,28 +20,42 @@ export default async function MerchantPage({
   const { id } = await params;
   const supabase = await createClient();
 
-  const { data: kitchen } = await supabase
-    .from("kitchens")
-    .select("*")
-    .eq("id", id)
-    .eq("is_live", true)
-    .maybeSingle<{
+  // Named columns via selectKitchens, never "*" — see KITCHEN_COLUMNS.
+  const { data: kitchen } = await selectKitchens((columns) =>
+    supabase
+      .from("kitchens")
+      .select(columns)
+      .eq("id", id)
+      .eq("is_live", true)
+      .maybeSingle<{
       id: string;
       business_name: string;
       category: MerchantCategory;
       cuisine_type: string;
-      neighbourhood: string;
       description: string | null;
+      // Absent until the Partner app's migrations add them.
+      postal_code?: string | null;
       business_uen?: string | null;
-    }>();
+    }>()
+  );
 
   if (!kitchen) notFound();
 
-  const { data: menuItems } = await supabase
-    .from("menu_items")
-    .select("id, name, price, photo_url")
-    .eq("kitchen_id", id)
-    .order("created_at", { ascending: true });
+  const [{ data: menuItems }, { data: ratingSummary }] = await Promise.all([
+    supabase
+      .from("menu_items")
+      .select("id, name, price, photo_url")
+      .eq("kitchen_id", id)
+      .order("created_at", { ascending: true }),
+    // No row = no ratings yet; an error (view from schema §32 not created
+    // yet) is treated the same way.
+    supabase
+      .from("kitchen_rating_summary")
+      .select("average, rating_count")
+      .eq("kitchen_id", id)
+      .maybeSingle<{ average: number; rating_count: number }>(),
+  ]);
+  const area = formatKitchenArea(kitchen.postal_code);
 
   const CUISINE_LABEL: Record<string, string> = {
     chinese: "Chinese",
@@ -61,7 +76,11 @@ export default async function MerchantPage({
           {kitchen.business_uen && <RegisteredBadge uen={kitchen.business_uen} showUen />}
         </div>
         <p className="mt-1" style={{ color: "var(--kb-on-navy-soft)" }}>
-          {CUISINE_LABEL[kitchen.cuisine_type] ?? kitchen.cuisine_type} &middot; {kitchen.neighbourhood}
+          {CUISINE_LABEL[kitchen.cuisine_type] ?? kitchen.cuisine_type}
+          {area && <> &middot; {area}</>}
+        </p>
+        <p className="mt-1 text-sm font-semibold">
+          <RatingSummary rating={ratingSummary?.average ?? 0} count={ratingSummary?.rating_count ?? 0} />
         </p>
         {kitchen.description && <p className="mt-4">{kitchen.description}</p>}
 

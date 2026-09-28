@@ -133,3 +133,33 @@ export async function cancelOrder(orderId: string): Promise<CancelOrderResult> {
   if (!data) return { ok: false, message: "This order can no longer be cancelled — the kitchen has already responded." };
   return { ok: true };
 }
+
+export type RateOrderResult = { ok: true } | { ok: false; message: string };
+
+/**
+ * Rates a delivered order 1-5 stars, once. kitchen_id is read from the order
+ * itself, never taken from the client. RLS (schema section 31,
+ * order_ratable()) is what actually enforces "own order, delivered, not yet
+ * rated" — the unique order_id turns a second attempt into error 23505.
+ * Returns a result object rather than throwing, for the same reason as
+ * cancelOrder() above.
+ */
+export async function rateOrder(orderId: string, stars: number): Promise<RateOrderResult> {
+  if (!Number.isInteger(stars) || stars < 1 || stars > 5) return { ok: false, message: "Pick between 1 and 5 stars." };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, message: "Please sign in to rate this order." };
+
+  const { data: order } = await supabase.from("orders").select("kitchen_id").eq("id", orderId).maybeSingle();
+  if (!order) return { ok: false, message: "Order not found." };
+
+  const { error } = await supabase
+    .from("ratings")
+    .insert({ order_id: orderId, customer_id: user.id, kitchen_id: order.kitchen_id, stars });
+  if (error?.code === "23505") return { ok: false, message: "You've already rated this order." };
+  if (error) return { ok: false, message: "Couldn't save your rating — ratings open once the order is delivered." };
+  return { ok: true };
+}
