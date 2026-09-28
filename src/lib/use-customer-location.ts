@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { useIsClient } from "@/lib/use-is-client";
 
 const STORAGE_KEY = "kb-customer-location";
 
@@ -21,8 +22,13 @@ export interface Coordinates {
 export function useCustomerLocation() {
   const [coords, setCoords] = useState<Coordinates | null>(null);
   const [status, setStatus] = useState<LocationStatus>("idle");
+  const [loadedCache, setLoadedCache] = useState(false);
+  const isClient = useIsClient();
 
-  useEffect(() => {
+  // Pick up a cached location once, on the first client render (adjusting
+  // state during render rather than in an effect after mount).
+  if (isClient && !loadedCache) {
+    setLoadedCache(true);
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
@@ -32,7 +38,7 @@ export function useCustomerLocation() {
     } catch {
       // Private browsing, blocked storage, etc. — just skip the cached location.
     }
-  }, []);
+  }
 
   const requestLocation = useCallback(() => {
     if (!("geolocation" in navigator)) {

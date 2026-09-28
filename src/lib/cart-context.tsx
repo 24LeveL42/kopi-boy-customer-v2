@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import type { Cart, CartItem } from "@/lib/types-order";
+import { useIsClient } from "@/lib/use-is-client";
 
 const STORAGE_KEY = "kb-cart";
 
@@ -28,16 +29,19 @@ const CartContext = createContext<CartContextValue | null>(null);
 export function CartProvider({ children }: { children: ReactNode }) {
   const [cart, setCart] = useState<Cart | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const isClient = useIsClient();
 
-  useEffect(() => {
+  // Load the saved cart once, on the first client render (adjusting state
+  // during render, so the stored cart shows without an extra effect pass).
+  if (isClient && !hydrated) {
+    setHydrated(true);
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) setCart(JSON.parse(raw));
     } catch {
       // Private browsing, blocked storage, etc. — cart just won't persist.
     }
-    setHydrated(true);
-  }, []);
+  }
 
   useEffect(() => {
     if (!hydrated) return;
